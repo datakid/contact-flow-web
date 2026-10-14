@@ -4,3 +4,4 @@ dist
 test-results
 tests/fixtures
 playwright-report
+.vercel
