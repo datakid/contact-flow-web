@@ -1,0 +1,196 @@
+@import "tailwindcss";
+@import "@fontsource/manrope/400.css";
+@import "@fontsource/manrope/500.css";
+@import "@fontsource/manrope/600.css";
+@import "@fontsource/manrope/700.css";
+@import "@fontsource/instrument-serif/400.css";
+@import "@fontsource/ibm-plex-sans-arabic/400.css";
+@import "@fontsource/ibm-plex-sans-arabic/500.css";
+@import "@fontsource/ibm-plex-sans-arabic/700.css";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+@theme {
+  --color-paper: var(--paper);
+  --color-card: var(--card);
+  --color-sunk: var(--sunk);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-ink2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-good: var(--good);
+  --color-good-soft: var(--good-soft);
+  --color-danger: var(--danger);
+  --font-sans: "Manrope", "IBM Plex Sans Arabic", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-serif: "Instrument Serif", "Noto Naskh Arabic", Georgia, serif;
+}
+
+:root {
+  --paper: #f6f1e8;
+  --card: #fffcf6;
+  --sunk: #efe8dc;
+  --line: #e6ded0;
+  --ink: #1a1714;
+  --ink-2: #4a433c;
+  --muted: #8c8378;
+  --faint: #b4ab9e;
+  --accent: #e8664a;
+  --accent-ink: #ffffff;
+  --accent-soft: #fbe6de;
+  --good: #6e8b6a;
+  --good-soft: #e6ecdf;
+  --danger: #c8442b;
+  --scrim: rgba(26, 23, 20, 0.45);
+  --shadow: 0 10px 40px rgba(40, 30, 20, 0.14);
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --paper: #141210;
+  --card: #1d1a17;
+  --sunk: #26221e;
+  --line: #2f2a25;
+  --ink: #f3ede3;
+  --ink-2: #cfc6b9;
+  --muted: #8f867a;
+  --faint: #5e574f;
+  --accent: #ee7457;
+  --accent-soft: #3a221b;
+  --good: #9ab594;
+  --good-soft: #232b21;
+  --danger: #f07a60;
+  --scrim: rgba(0, 0, 0, 0.6);
+  --shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+.serif {
+  font-family: var(--font-serif);
+}
+
+mark.hl {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: inherit;
+  border-radius: 3px;
+  padding-inline: 1px;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes slide-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+.anim-fade {
+  animation: fade-in 140ms ease-out;
+}
+
+.anim-pop {
+  animation: pop-in 160ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+.resize-handle {
+  inline-size: 6px;
+  margin-inline: -3px;
+  cursor: col-resize;
+  position: relative;
+  z-index: 5;
+  flex: none;
+}
+
+.resize-handle::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline: 2px;
+  background: transparent;
+  transition: background 120ms;
+}
+
+.resize-handle:hover::after,
+.resize-handle[data-active="true"]::after {
+  background: var(--accent);
+}
