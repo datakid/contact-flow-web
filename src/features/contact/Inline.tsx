@@ -20,6 +20,7 @@ export function InlineText({ value, onSave, placeholder, className, inputClassNa
   const [draft, setDraft] = useState(value);
   const ref = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
   const cancelled = useRef(false);
+  const finished = useRef(false);
 
   useEffect(() => {
     if (!editing) setDraft(value);
@@ -42,12 +43,15 @@ export function InlineText({ value, onSave, placeholder, className, inputClassNa
 
   function begin(): void {
     cancelled.current = false;
+    finished.current = false;
     setDraft(value);
     setEditing(true);
     onEditingChange?.(true);
   }
 
   function finish(save: boolean): void {
+    if (finished.current) return;
+    finished.current = true;
     setEditing(false);
     onEditingChange?.(false);
     if (save && draft !== value) onSave(draft);
@@ -55,7 +59,7 @@ export function InlineText({ value, onSave, placeholder, className, inputClassNa
 
   if (!editing) {
     return (
-      <button type="button" dir={dir} aria-label={ariaLabel ?? placeholder} onClick={begin} className={cx("block w-full rounded-lg px-2 py-1 text-start hover:bg-sunk", !value && "text-faint", className)}>
+      <button type="button" dir={dir} aria-label={value ? `${ariaLabel ?? placeholder}: ${value}` : ariaLabel ?? placeholder} onClick={begin} className={cx("block w-full rounded-lg px-2 py-1 text-start hover:bg-sunk", !value && "text-faint", className)}>
         <span className={multiline ? "whitespace-pre-wrap break-words" : "break-words"}>{value || placeholder}</span>
       </button>
     );

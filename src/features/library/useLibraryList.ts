@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { db } from "../../app/db";
+import { db, nextRequestId } from "../../app/db";
 import { useDebounced } from "../../app/hooks";
 import { useApp } from "../../app/store";
 import type { ContactRow } from "../../core/types";
@@ -14,6 +14,7 @@ export interface LetterEntry {
 
 export interface LibraryList {
   total: number;
+  matchTotal: number;
   loading: boolean;
   searching: boolean;
   letters: LetterEntry[];
@@ -24,60 +25,83 @@ export interface LibraryList {
   generation: number;
 }
 
+interface ListSnapshot {
+  total: number;
+  matchTotal: number;
+  letters: LetterEntry[];
+  searching: boolean;
+  loading: boolean;
+  generation: number;
+}
+
+const MAX_REFRESH_PAGES = 10;
+
 export function useLibraryList(): LibraryList {
   const filter = useApp((s) => s.filter);
   const sort = useApp((s) => s.sort);
   const search = useApp((s) => s.search);
   const version = useApp((s) => s.version);
   const debounced = useDebounced(search, 120);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [letters, setLetters] = useState<LetterEntry[]>([]);
-  const [generation, setGeneration] = useState(0);
+  const [snapshot, setSnapshot] = useState<ListSnapshot>({ total: 0, matchTotal: 0, letters: [], searching: false, loading: true, generation: 0 });
   const pagesRef = useRef(new Map<number, ContactRow[]>());
   const pendingRef = useRef(new Set<number>());
   const requestRef = useRef(0);
   const searchingRef = useRef(false);
   const keyRef = useRef("");
+  const lastPageRef = useRef(0);
 
   const key = useMemo(() => JSON.stringify([filter, sort, debounced]), [filter, sort, debounced]);
   const searching = debounced.trim() !== "";
 
   useEffect(() => {
-    const requestId = ++requestRef.current;
+    const requestId = nextRequestId();
+    requestRef.current = requestId;
     const changedQuery = keyRef.current !== key;
     keyRef.current = key;
     searchingRef.current = searching;
     pendingRef.current.clear();
-    if (changedQuery) setLoading(true);
+    if (changedQuery) setSnapshot((s) => ({ ...s, loading: true }));
     void (async () => {
-      const result = await db.list({ filter, sort, search: debounced, offset: 0, limit: searching ? 500 : PAGE_SIZE, requestId });
+      const needLetters = !searching && (sort === "nameAsc" || sort === "nameDesc");
+      const [result, offsets] = await Promise.all([
+        db.list({ filter, sort, search: debounced, offset: 0, limit: searching ? 500 : PAGE_SIZE, channel: "library", requestId }),
+        needLetters ? db.letterOffsets(filter, sort) : Promise.resolve([] as LetterEntry[])
+      ]);
       if (result.cancelled || requestRef.current !== requestId) return;
       const pages = new Map<number, ContactRow[]>();
       if (searching) {
         for (let i = 0; i < result.rows.length; i += PAGE_SIZE) pages.set(i / PAGE_SIZE, result.rows.slice(i, i + PAGE_SIZE));
-      } else pages.set(0, result.rows);
+      } else {
+        pages.set(0, result.rows);
+        if (!changedQuery) {
+          const keep = [...pagesRef.current.keys()]
+            .filter((page) => page !== 0 && page * PAGE_SIZE < result.total)
+            .sort((a, b) => Math.abs(a - lastPageRef.current) - Math.abs(b - lastPageRef.current))
+            .slice(0, MAX_REFRESH_PAGES);
+          const fetched = await Promise.all(keep.map((page) => db.list({ filter, sort, search: "", offset: page * PAGE_SIZE, limit: PAGE_SIZE, channel: "aux", requestId: nextRequestId() })));
+          if (requestRef.current !== requestId) return;
+          keep.forEach((page, i) => {
+            const rows = fetched[i]?.rows;
+            if (rows) pages.set(page, rows);
+          });
+        }
+      }
       pagesRef.current = pages;
-      setTotal(searching ? result.rows.length : result.total);
-      setLoading(false);
-      setGeneration((g) => g + 1);
-      if (!searching && (sort === "nameAsc" || sort === "nameDesc")) {
-        const offsets = await db.letterOffsets(filter, sort);
-        if (requestRef.current === requestId) setLetters(offsets);
-      } else setLetters([]);
+      setSnapshot((s) => ({ total: searching ? result.rows.length : result.total, matchTotal: result.total, letters: offsets, searching, loading: false, generation: s.generation + 1 }));
     })();
   }, [key, version, filter, sort, debounced, searching]);
 
   const loadPage = useCallback(
     async (page: number): Promise<void> => {
+      lastPageRef.current = page;
       if (searchingRef.current || pagesRef.current.has(page) || pendingRef.current.has(page)) return;
       pendingRef.current.add(page);
       const requestId = requestRef.current;
       try {
-        const result = await db.list({ filter, sort, search: "", offset: page * PAGE_SIZE, limit: PAGE_SIZE, requestId: requestId + 0.001 * page });
+        const result = await db.list({ filter, sort, search: "", offset: page * PAGE_SIZE, limit: PAGE_SIZE, channel: "aux", requestId: nextRequestId() });
         if (requestRef.current === requestId && !result.cancelled) {
           pagesRef.current.set(page, result.rows);
-          setGeneration((g) => g + 1);
+          setSnapshot((s) => ({ ...s, generation: s.generation + 1 }));
         }
       } finally {
         pendingRef.current.delete(page);
@@ -106,5 +130,5 @@ export function useLibraryList(): LibraryList {
     return -1;
   }, []);
 
-  return { total, loading, searching, letters, getRow, ensure, ensureRange, indexOfId, generation };
+  return { total: snapshot.total, matchTotal: snapshot.matchTotal, loading: snapshot.loading, searching: snapshot.searching, letters: snapshot.letters, getRow, ensure, ensureRange, indexOfId, generation: snapshot.generation };
 }

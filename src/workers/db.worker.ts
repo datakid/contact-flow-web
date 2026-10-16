@@ -65,7 +65,9 @@ class DbService implements DbApi {
   async list(query: Parameters<DbApi["list"]>[0]) { return this.l.list(query); }
   async letterOffsets(filter: Parameters<DbApi["letterOffsets"]>[0], sort: Parameters<DbApi["letterOffsets"]>[1]) { return this.l.letterOffsets(filter, sort); }
   async getContact(id: string) { return this.l.getContact(id); }
+  async getContacts(ids: string[]) { return this.l.contactsByIds(ids); }
   async saveContact(input: Parameters<DbApi["saveContact"]>[0], label: string) { return this.l.saveContact(input, label); }
+  async countSelection(selection: Parameters<DbApi["countSelection"]>[0]) { return this.l.countSelection(selection); }
   async setStarred(selection: Parameters<DbApi["setStarred"]>[0], starred: boolean, label: string) { return this.l.setStarred(selection, starred, label); }
   async deleteContacts(selection: Parameters<DbApi["deleteContacts"]>[0], label: string) { return this.l.deleteContacts(selection, label); }
   async addToGroup(selection: Parameters<DbApi["addToGroup"]>[0], groupId: number, label: string) { return this.l.addToGroup(selection, groupId, label); }
@@ -73,7 +75,7 @@ class DbService implements DbApi {
   async createGroup(name: string) { return this.l.createGroup(name); }
   async renameGroup(id: number, name: string) { return this.l.renameGroup(id, name); }
   async recolorGroup(id: number, color: string) { this.l.recolorGroup(id, color); }
-  async deleteGroup(id: number) { this.l.deleteGroup(id); }
+  async deleteGroup(id: number) { return this.l.deleteGroup(id); }
   async listHistory(limit: number, offset: number) { return this.l.listHistory(limit, offset); }
   async undo(historyId: string | null) { return this.l.undo(historyId); }
   async duplicateGroups(limit: number, offset: number) { return this.l.duplicateGroups(limit, offset); }
@@ -95,11 +97,14 @@ class DbService implements DbApi {
     const lib = this.l;
     const now = Date.now();
     const batch = `sample_${now.toString(36)}`;
+    const created: string[] = [];
+    let historyId: string | null = null;
     lib.db.transaction(() => {
-      for (const input of sampleContacts()) lib.upsertInTransaction({ ...input, importBatch: batch }, now);
+      for (const input of sampleContacts()) created.push(lib.upsertInTransaction({ ...input, importBatch: batch }, now).id);
+      historyId = lib.recordHistory("import", "Sample", created.length, { type: "snapshots", before: [], created }, now);
     });
     lib.touch();
-    return sampleContacts().length;
+    return { count: created.length, historyId };
   }
   async stageBegin() { this.l.stageBegin(); }
   async stageClassify() { this.l.stageClassify(); }

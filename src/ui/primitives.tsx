@@ -7,7 +7,9 @@ import * as SelectPrimitive from "@radix-ui/react-select";
 import * as SwitchPrimitive from "@radix-ui/react-switch";
 import * as TabsPrimitive from "@radix-ui/react-tabs";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
-import { Check, ChevronDown, ChevronRight } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Minus, X } from "lucide-react";
+import { translate } from "../app/i18n";
+import { useApp } from "../app/store";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { forwardRef } from "react";
 import { hueOf, initialsOf } from "../core/fold";
@@ -23,8 +25,8 @@ const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
   primary: "bg-accent text-white hover:brightness-105 active:brightness-95",
   ghost: "text-ink2 hover:bg-sunk",
   outline: "border border-line bg-card text-ink hover:bg-sunk",
-  danger: "bg-danger text-white hover:brightness-105",
-  soft: "bg-accent-soft text-accent hover:brightness-95"
+  danger: "btn-danger bg-danger hover:brightness-105",
+  soft: "bg-accent-soft text-accent-strong hover:brightness-95"
 };
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -32,10 +34,30 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   size?: "sm" | "md" | "lg";
 }
 
+const BUTTON_SIZES = { sm: "h-8 px-3 text-xs", md: "h-9 px-4 text-sm", lg: "h-11 px-5 text-sm" };
+
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button({ variant = "outline", size = "md", className, type = "button", ...rest }, ref) {
-  const sizes = { sm: "h-8 px-3 text-xs", md: "h-9 px-4 text-sm", lg: "h-11 px-5 text-sm" };
-  return <button ref={ref} type={type} className={cx(BUTTON_BASE, BUTTON_VARIANTS[variant], sizes[size], className)} {...rest} />;
+  return <button ref={ref} type={type} className={cx(BUTTON_BASE, BUTTON_VARIANTS[variant], BUTTON_SIZES[size], className)} {...rest} />;
 });
+
+export function LinkButton({ href, variant = "outline", size = "md", className, disabledReason, onClick, children }: { href: string | null; variant?: ButtonVariant; size?: "sm" | "md" | "lg"; className?: string; disabledReason: string; onClick?: () => void; children: ReactNode }) {
+  const classes = cx(BUTTON_BASE, BUTTON_VARIANTS[variant], BUTTON_SIZES[size], className);
+  if (!href) {
+    return (
+      <span title={disabledReason} className="inline-flex">
+        <span role="link" aria-disabled="true" className={cx(classes, "pointer-events-none opacity-40")}>
+          {children}
+        </span>
+      </span>
+    );
+  }
+  const external = href.startsWith("http");
+  return (
+    <a href={href} onClick={onClick} className={classes} target={external ? "_blank" : undefined} rel={external ? "noopener noreferrer" : undefined}>
+      {children}
+    </a>
+  );
+}
 
 export const IconButton = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLButtonElement> & { active?: boolean; label: string }>(function IconButton({ active, label, className, type = "button", ...rest }, ref) {
   return (
@@ -67,17 +89,21 @@ export function Avatar({ name, size = 40, seed }: { name: string; size?: number;
   );
 }
 
-export function Checkbox({ checked, onCheckedChange, label, className }: { checked: boolean | "indeterminate"; onCheckedChange: (v: boolean) => void; label: string; className?: string }) {
+export function Checkbox({ checked, onCheckedChange, onClick, label, className, tabIndex }: { checked: boolean | "indeterminate"; tabIndex?: number; onCheckedChange?: (v: boolean) => void; onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void; label: string; className?: string }) {
   return (
     <CheckboxPrimitive.Root
       checked={checked}
-      onCheckedChange={(v) => onCheckedChange(v === true)}
-      onClick={(e) => e.stopPropagation()}
+      onCheckedChange={(v) => onCheckedChange?.(v === true)}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick?.(e);
+      }}
       aria-label={label}
-      className={cx("grid size-[18px] shrink-0 place-items-center rounded-md border border-faint bg-card data-[state=checked]:border-accent data-[state=checked]:bg-accent data-[state=indeterminate]:border-accent data-[state=indeterminate]:bg-accent", className)}
+      tabIndex={tabIndex}
+      className={cx("relative grid size-[18px] shrink-0 place-items-center rounded-md border border-faint bg-card before:absolute before:-inset-[11px] before:content-[''] data-[state=checked]:border-accent data-[state=checked]:bg-accent data-[state=indeterminate]:border-accent data-[state=indeterminate]:bg-accent", className)}
     >
       <CheckboxPrimitive.Indicator className="text-white">
-        <Check size={12} strokeWidth={3} />
+        {checked === "indeterminate" ? <Minus size={12} strokeWidth={3} /> : <Check size={12} strokeWidth={3} />}
       </CheckboxPrimitive.Indicator>
     </CheckboxPrimitive.Root>
   );
@@ -113,6 +139,7 @@ export function Segmented<T extends string>({ value, onChange, options }: { valu
 
 export function Modal({ open, onOpenChange, title, description, children, size = "md", footer, fullScreen }: { open: boolean; onOpenChange: (open: boolean) => void; title: ReactNode; description?: string; children: ReactNode; size?: "sm" | "md" | "lg" | "xl"; footer?: ReactNode; fullScreen?: boolean }) {
   const widths = { sm: "max-w-sm", md: "max-w-lg", lg: "max-w-3xl", xl: "max-w-6xl" };
+  const lang = useApp((s) => s.lang);
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
@@ -129,8 +156,8 @@ export function Modal({ open, onOpenChange, title, description, children, size =
               <DialogPrimitive.Title className="serif truncate text-2xl leading-tight">{title}</DialogPrimitive.Title>
               {description ? <DialogPrimitive.Description className="text-xs text-muted">{description}</DialogPrimitive.Description> : null}
             </div>
-            <DialogPrimitive.Close className="grid size-8 place-items-center rounded-lg text-muted hover:bg-sunk" aria-label="Close">
-              <span aria-hidden="true" className="text-lg leading-none">×</span>
+            <DialogPrimitive.Close className="grid size-8 place-items-center rounded-lg text-muted hover:bg-sunk" aria-label={translate(lang, "close")}>
+              <X size={16} aria-hidden="true" />
             </DialogPrimitive.Close>
           </div>
           <div className="scroll-thin min-h-0 flex-1 overflow-auto">{children}</div>
@@ -149,6 +176,7 @@ export interface MenuEntry {
   label: string;
   icon?: ReactNode;
   onSelect?: () => void;
+  href?: string;
   danger?: boolean;
   disabled?: boolean;
   separator?: boolean;
@@ -173,6 +201,17 @@ function renderEntries(entries: MenuEntry[], kind: "dropdown" | "context"): Reac
             </P.SubContent>
           </P.Portal>
         </P.Sub>
+      );
+    }
+    if (entry.href && !entry.disabled) {
+      const external = entry.href.startsWith("http");
+      return (
+        <P.Item key={entry.key} asChild className={cx(MENU_ITEM, entry.danger && "text-danger")}>
+          <a href={entry.href} target={external ? "_blank" : undefined} rel="noopener noreferrer">
+            {entry.icon}
+            <span className="flex-1">{entry.label}</span>
+          </a>
+        </P.Item>
       );
     }
     return (
@@ -274,12 +313,13 @@ export function Field({ label, children, hint }: { label: string; children: Reac
 export const inputClass = "h-9 w-full rounded-xl border border-line bg-card px-3 text-sm text-ink placeholder:text-faint focus:border-accent focus:outline-none";
 
 export function Badge({ children, tone = "neutral" }: { children: ReactNode; tone?: "neutral" | "accent" | "good" | "danger" }) {
-  const tones = { neutral: "bg-sunk text-ink2", accent: "bg-accent-soft text-accent", good: "bg-good-soft text-good", danger: "bg-danger/15 text-danger" };
+  const tones = { neutral: "bg-sunk text-ink2", accent: "bg-accent-soft text-accent-strong", good: "bg-good-soft text-good-strong", danger: "bg-danger/15 text-danger" };
   return <span className={cx("inline-flex min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold leading-5", tones[tone])}>{children}</span>;
 }
 
-export function Spinner({ size = 16 }: { size?: number }) {
-  return <span className="inline-block animate-spin rounded-full border-2 border-line border-t-accent" style={{ width: size, height: size }} role="status" aria-label="Loading" />;
+export function Spinner({ size = 16, label }: { size?: number; label?: string }) {
+  const text = label ?? translate(useApp.getState().lang, "loading");
+  return <span className="inline-block animate-spin rounded-full border-2 border-line border-t-accent" style={{ width: size, height: size }} role="status" aria-label={text} />;
 }
 
 export function ProgressBar({ value }: { value: number }) {

@@ -7,6 +7,13 @@ const dbWorker = new Worker(new URL("../workers/db.worker.ts", import.meta.url),
 
 export const db = Comlink.wrap<DbApi>(dbWorker);
 
+let requestSeq = 0;
+
+export function nextRequestId(): number {
+  requestSeq += 1;
+  return requestSeq;
+}
+
 export interface WorkerHandle<T> {
   api: Comlink.Remote<T>;
   terminate: () => void;

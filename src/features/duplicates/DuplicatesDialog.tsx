@@ -34,9 +34,13 @@ export function DuplicatesDialog() {
   const merge = async (groupList: DuplicateGroup[]): Promise<void> => {
     setBusy(true);
     const state = useApp.getState();
-    for (const g of groupList) await db.mergeGroup(keep[g.key] ?? g.keepId, g.members.map((m) => m.id), t("merged", 1));
+    const historyIds: string[] = [];
+    for (const g of groupList) {
+      const merged = await db.mergeGroup(keep[g.key] ?? g.keepId, g.members.map((m) => m.id), t("merged", 1));
+      if (merged.historyId) historyIds.push(merged.historyId);
+    }
     await state.refresh();
-    state.toast(t("merged", groupList.length), "last");
+    state.toast(t("merged", groupList.length), historyIds.length > 0 ? historyIds : null);
     setBusy(false);
   };
 

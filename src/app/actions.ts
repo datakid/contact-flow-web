@@ -17,7 +17,7 @@ export async function copyText(text: string): Promise<void> {
     await navigator.clipboard.writeText(text);
     state.toast(translate(state.lang, "copied"));
   } catch {
-    state.toast(translate(state.lang, "copied"), null, "error");
+    state.toast(translate(state.lang, "copyFailed"), null, "error");
   }
 }
 
@@ -31,7 +31,7 @@ export async function saveContactInput(input: ContactInput, undoable = true): Pr
   try {
     const result = await db.saveContact(input, input.name || translate(state.lang, "newContact"));
     await state.refresh();
-    state.toast(translate(state.lang, "savedToast"), undoable ? "last" : null);
+    state.toast(translate(state.lang, "savedToast"), undoable ? result.historyId : null);
     if (isNew) state.setFocused(result.contact.id);
     return result.contact;
   } catch (error) {
@@ -45,13 +45,27 @@ export async function undoLast(): Promise<void> {
   const result = await db.undo(null);
   await state.refresh();
   if (result) state.toast(`${translate(state.lang, "undone")}: ${result.undone.label}`);
+  else state.toast(translate(state.lang, "nothingToUndo"));
+}
+
+export async function undoEntry(target: string | string[]): Promise<void> {
+  const state = useApp.getState();
+  const ids = Array.isArray(target) ? [...target].reverse() : [target];
+  let label: string | null = null;
+  for (const id of ids) {
+    const result = await db.undo(id);
+    if (result) label = result.undone.label;
+  }
+  await state.refresh();
+  if (label === null) state.toast(translate(state.lang, "nothingToUndo"));
+  else state.toast(`${translate(state.lang, "undone")}: ${label}`);
 }
 
 export async function setStarred(selection: Selection, starred: boolean): Promise<void> {
   const state = useApp.getState();
-  const count = await db.setStarred(selection, starred, starred ? translate(lang(), "star") : translate(lang(), "unstar"));
+  const result = await db.setStarred(selection, starred, starred ? translate(lang(), "star") : translate(lang(), "unstar"));
   await state.refresh();
-  state.toast(translate(state.lang, starred ? "starredToast" : "unstarredToast", count), "last");
+  state.toast(translate(state.lang, starred ? "starredToast" : "unstarredToast", result.count), result.historyId);
 }
 
 export async function toggleStar(contact: { id: string; starred: boolean }): Promise<void> {
@@ -60,26 +74,26 @@ export async function toggleStar(contact: { id: string; starred: boolean }): Pro
 
 export async function addToGroup(selection: Selection, groupId: number): Promise<void> {
   const state = useApp.getState();
-  const count = await db.addToGroup(selection, groupId, translate(state.lang, "addToGroup"));
+  const result = await db.addToGroup(selection, groupId, translate(state.lang, "addToGroup"));
   await state.refresh();
-  state.toast(translate(state.lang, "addedToGroupToast", count), "last");
+  state.toast(translate(state.lang, "addedToGroupToast", result.count), result.historyId);
 }
 
 export async function removeFromGroup(selection: Selection, groupId: number): Promise<void> {
   const state = useApp.getState();
-  const count = await db.removeFromGroup(selection, groupId, translate(state.lang, "removeFromGroup"));
+  const result = await db.removeFromGroup(selection, groupId, translate(state.lang, "removeFromGroup"));
   await state.refresh();
-  state.toast(translate(state.lang, "removedFromGroupToast", count), "last");
+  state.toast(translate(state.lang, "removedFromGroupToast", result.count), result.historyId);
 }
 
 export async function deleteSelection(selection: Selection): Promise<void> {
   const state = useApp.getState();
-  const count = await db.deleteContacts(selection, translate(state.lang, "delete"));
+  const result = await db.deleteContacts(selection, translate(state.lang, "delete"));
   state.clearSelection();
   if (selection.kind === "ids" && state.focusedId && selection.ids.includes(state.focusedId)) state.setFocused(null);
   if (selection.kind === "filter") state.setFocused(null);
   await state.refresh();
-  state.toast(translate(state.lang, "deleted", count), "last");
+  state.toast(translate(state.lang, "deleted", result.count), result.historyId);
 }
 
 export async function createGroupNamed(name: string): Promise<number | null> {
@@ -87,14 +101,6 @@ export async function createGroupNamed(name: string): Promise<number | null> {
   const id = await db.createGroup(name);
   await state.refresh();
   return id;
-}
-
-export function messageUrl(channel: "whatsapp" | "signal" | "sms", number: string, text = ""): string {
-  const digits = digitsOf(number);
-  const body = text ? encodeURIComponent(text) : "";
-  if (channel === "whatsapp") return `https://wa.me/${digits}${body ? `?text=${body}` : ""}`;
-  if (channel === "signal") return `https://signal.me/#p/+${digits}`;
-  return `sms:${styleNumber(number, "intl")}${body ? `?&body=${body}` : ""}`;
 }
 
 export function vcardFor(contact: Contact): string {

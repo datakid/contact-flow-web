@@ -48,6 +48,7 @@ export interface CommitResult {
   updated: number;
   skipped: number;
   batchId: string;
+  historyId: string | null;
 }
 
 function uniq(list: string[]): string[] {
@@ -343,9 +344,9 @@ export class ImportStaging extends LibraryService {
       done += part.length;
       onProgress?.(done, total);
     }
-    this.recordHistory("import", label, created.length + updated, { type: "snapshots", before, created }, now);
+    const historyId = this.recordHistory("import", label, created.length + updated, { type: "snapshots", before, created }, now);
     this.touch();
     this.stageDiscard();
-    return { created: created.length, updated, skipped, batchId };
+    return { created: created.length, updated, skipped, batchId, historyId };
   }
 }

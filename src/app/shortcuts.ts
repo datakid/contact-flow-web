@@ -28,7 +28,7 @@ async function moveFocus(delta: number, extend: boolean): Promise<void> {
     ids.add(row.id);
     state.setSelected(ids, state.anchorIndex ?? (current < 0 ? next : current));
   }
-  useApp.setState({ focusedId: row.id });
+  useApp.setState(extend ? { focusedId: row.id } : { focusedId: row.id, anchorIndex: next });
   controller.scrollToIndex(next);
 }
 
@@ -45,7 +45,7 @@ export function useGlobalShortcuts(): void {
         state.openDialog(state.dialog === "palette" ? null : "palette");
         return;
       }
-      if (state.dialog && state.dialog !== "palette" && key !== "Escape") return;
+      if (state.dialog) return;
       if (mod && key.toLowerCase() === "i") {
         event.preventDefault();
         state.openDialog("import");
@@ -53,7 +53,7 @@ export function useGlobalShortcuts(): void {
       }
       if (mod && event.shiftKey && key.toLowerCase() === "e") {
         event.preventDefault();
-        state.openDialog("export", { kind: "filter", filter: state.filter, search: state.search });
+        state.openDialog("export", { kind: "filter", filter: state.filter, search: state.search, exclude: [] });
         return;
       }
       if (mod && key.toLowerCase() === "b") {
@@ -128,8 +128,8 @@ export function useGlobalShortcuts(): void {
           break;
       }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, []);
 }
 

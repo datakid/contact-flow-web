@@ -1,13 +1,16 @@
-import { Copy, EllipsisVertical, MessageCircle, MessageSquare, Phone, Plus, Send, Share2, Star, UserRound, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { contactToInput, copyText, createGroupNamed, findDuplicatesOf, messageUrl, saveContactInput, shareVCard, toggleStar } from "../../app/actions";
+import { ChevronLeft, Copy, EllipsisVertical, MessageCircle, MessageSquare, Phone, Plus, Send, Share2, Star, UserRound, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { contactToInput, copyText, createGroupNamed, findDuplicatesOf, saveContactInput, shareVCard, toggleStar } from "../../app/actions";
+import type { CountryCode } from "libphonenumber-js/max";
+import { firstReachable, messageUrl } from "../../core/messaging";
+import type { MessageChannel } from "../../core/messaging";
 import { db } from "../../app/db";
 import { useT } from "../../app/i18n";
 import { useApp } from "../../app/store";
 import { styleNumber } from "../../core/phone";
 import type { Contact, ContactInput, LabeledValue } from "../../core/types";
 import { PHONE_LABELS, EMAIL_LABELS } from "../../core/types";
-import { Avatar, Button, DropdownMenu, IconButton, Popover, PopoverContent, PopoverTrigger, Select, Spinner, cx } from "../../ui/primitives";
+import { Avatar, Button, DropdownMenu, IconButton, LinkButton, Popover, PopoverContent, PopoverTrigger, Select, Spinner, cx } from "../../ui/primitives";
 import { InlineText } from "./Inline";
 
 const COARSE = typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
@@ -22,18 +25,25 @@ const LABEL_KEYS: Record<string, LabelKey> = { mobile: "labelMobile", home: "lab
 function ValueRows({ kind, items, onChange }: { kind: "phone" | "email"; items: LabeledValue[]; onChange: (next: LabeledValue[]) => void }) {
   const t = useT();
   const [adding, setAdding] = useState(false);
+  const idsRef = useRef<string[]>([]);
+  while (idsRef.current.length < items.length) idsRef.current.push(crypto.randomUUID());
+  idsRef.current.length = items.length;
+  const removeAt = (index: number): void => {
+    idsRef.current.splice(index, 1);
+    onChange(items.filter((_, i) => i !== index));
+  };
   const labels = kind === "phone" ? PHONE_LABELS : EMAIL_LABELS;
   const labelOptions = labels.map((l) => ({ value: l as string, label: t(LABEL_KEYS[l] ?? "labelOther") }));
   const defaultLabel = kind === "phone" ? "mobile" : "work";
   return (
     <div className="flex flex-col">
       {items.map((item, index) => (
-        <div key={index} className="group flex items-center gap-1">
-          <Select value={item.label || defaultLabel} onValueChange={(label) => onChange(items.map((x, i) => (i === index ? { ...x, label } : x)))} options={labelOptions} label="Label" className="h-8 w-24 border-transparent bg-transparent text-xs text-muted" />
+        <div key={idsRef.current[index]} className="group flex items-center gap-1">
+          <Select value={item.label || defaultLabel} onValueChange={(label) => onChange(items.map((x, i) => (i === index ? { ...x, label } : x)))} options={labelOptions} label={t("label")} className="h-8 w-24 border-transparent bg-transparent text-xs text-muted" />
           <div className="min-w-0 flex-1">
-            <InlineText value={item.value} dir="ltr" inputMode={kind === "phone" ? "tel" : "email"} placeholder={kind === "phone" ? t("phone") : t("email")} onSave={(value) => onChange(value.trim() ? items.map((x, i) => (i === index ? { ...x, value } : x)) : items.filter((_, i) => i !== index))} className="tabular-nums" />
+            <InlineText value={item.value} dir="ltr" inputMode={kind === "phone" ? "tel" : "email"} placeholder={kind === "phone" ? t("phone") : t("email")} onSave={(value) => value.trim() ? onChange(items.map((x, i) => (i === index ? { ...x, value } : x))) : removeAt(index)} className="tabular-nums" />
           </div>
-          <IconButton label={t("delete")} onClick={() => onChange(items.filter((_, i) => i !== index))} className="opacity-0 group-hover:opacity-100 focus:opacity-100">
+          <IconButton label={t("delete")} onClick={() => removeAt(index)} className="opacity-0 group-hover:opacity-100 focus:opacity-100">
             <X size={14} />
           </IconButton>
         </div>
@@ -144,17 +154,30 @@ export function DetailPane({ onBack }: { onBack?: () => void }) {
   const [contact, setContact] = useState<Contact | null>(null);
   const [loading, setLoading] = useState(false);
   const [editName, setEditName] = useState(false);
+  const country = useApp((s) => s.defaultCountry) as CountryCode;
+  const latestRef = useRef<Contact | null>(null);
+  const pendingSaves = useRef(0);
+  const saveChain = useRef<Promise<unknown>>(Promise.resolve());
 
   useEffect(() => {
     let alive = true;
     if (!focusedId) {
+      latestRef.current = null;
       setContact(null);
       return;
+    }
+    if (latestRef.current && latestRef.current.id !== focusedId) {
+      latestRef.current = null;
+      setContact(null);
     }
     setLoading(true);
     void db.getContact(focusedId).then((c) => {
       if (!alive) return;
-      setContact(c);
+      const editingThis = pendingSaves.current > 0 && latestRef.current?.id === focusedId;
+      if (!editingThis) {
+        latestRef.current = c;
+        setContact(c);
+      }
       setLoading(false);
     });
     return () => {
@@ -169,13 +192,19 @@ export function DetailPane({ onBack }: { onBack?: () => void }) {
     }
   }, [editingId, contact?.id]);
 
-  const patch = useCallback(
-    (changes: Partial<ContactInput>) => {
-      if (!contact) return;
-      void saveContactInput({ ...contactToInput(contact), ...changes });
-    },
-    [contact]
-  );
+  const patch = useCallback((changes: Partial<ContactInput>) => {
+    const current = latestRef.current;
+    if (!current || current.id !== useApp.getState().focusedId) return;
+    const next = { ...current, ...changes } as Contact;
+    latestRef.current = next;
+    setContact(next);
+    pendingSaves.current += 1;
+    saveChain.current = saveChain.current
+      .then(() => saveContactInput(contactToInput(next)))
+      .finally(() => {
+        pendingSaves.current -= 1;
+      });
+  }, []);
 
   const stamp = useMemo(() => (ms: number): string => new Date(ms).toLocaleString(lang === "ar" ? "ar" : undefined, { dateStyle: "medium", timeStyle: "short" }), [lang]);
 
@@ -203,14 +232,15 @@ export function DetailPane({ onBack }: { onBack?: () => void }) {
       </div>
     );
   }
-  const firstPhone = contact.phones[0]?.value ?? "";
-  const open = (url: string): void => void window.open(url, "_blank", "noopener");
+  const reachable = firstReachable(contact.phones, country);
+  const linkFor = (channel: MessageChannel): string | null => (reachable ? messageUrl(channel, reachable, country) : null);
+  const unreachableReason = t(contact.phones.length > 0 ? "needsCountryCode" : "noNumberToMessage");
   return (
     <aside className="flex h-full min-h-0 flex-col" aria-label={contact.name}>
       <div className="border-b border-line px-5 pb-4 pt-5">
         {onBack ? (
           <Button size="sm" variant="ghost" onClick={onBack} className="-ms-2 mb-2">
-            ← {t("close")}
+            <ChevronLeft size={16} className="rtl:rotate-180" /> {t("back")}
           </Button>
         ) : null}
         <div className="flex items-start gap-4">
@@ -230,20 +260,20 @@ export function DetailPane({ onBack }: { onBack?: () => void }) {
         <div className="mt-4 flex flex-wrap gap-2">
           {COARSE ? (
             <>
-              <Button size="sm" variant="outline" disabled={!firstPhone} onClick={() => open(`tel:${styleNumber(firstPhone, "intl")}`)}>
+              <LinkButton size="sm" href={linkFor("tel")} disabledReason={unreachableReason}>
                 <Phone size={14} /> {t("call")}
-              </Button>
-              <Button size="sm" variant="outline" disabled={!firstPhone} onClick={() => open(messageUrl("sms", firstPhone))}>
+              </LinkButton>
+              <LinkButton size="sm" href={linkFor("sms")} disabledReason={unreachableReason}>
                 <MessageSquare size={14} /> {t("sms")}
-              </Button>
+              </LinkButton>
             </>
           ) : null}
-          <Button size="sm" variant="outline" disabled={!firstPhone} onClick={() => open(messageUrl("whatsapp", firstPhone))}>
+          <LinkButton size="sm" href={linkFor("whatsapp")} disabledReason={unreachableReason}>
             <MessageCircle size={14} /> {t("whatsapp")}
-          </Button>
-          <Button size="sm" variant="outline" disabled={!firstPhone} onClick={() => open(messageUrl("signal", firstPhone))}>
+          </LinkButton>
+          <LinkButton size="sm" href={linkFor("signal")} disabledReason={unreachableReason}>
             <Send size={14} /> {t("signal")}
-          </Button>
+          </LinkButton>
           <Button size="sm" variant="outline" onClick={() => void copyText([contact.name, ...contact.phones.map((p) => p.value), ...contact.emails.map((e) => e.value)].filter(Boolean).join("\n"))}>
             <Copy size={14} /> {t("copy")}
           </Button>
@@ -252,7 +282,7 @@ export function DetailPane({ onBack }: { onBack?: () => void }) {
           </Button>
           <DropdownMenu
             trigger={
-              <IconButton label="More" className="border border-line bg-card">
+              <IconButton label={t("more")} className="border border-line bg-card">
                 <EllipsisVertical size={15} />
               </IconButton>
             }

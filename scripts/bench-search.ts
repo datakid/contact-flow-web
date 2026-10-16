@@ -48,13 +48,13 @@ async function main(): Promise<void> {
   const queries = ["mohamed", "moh", "ham", "hassan smith", "05012", "0501234", "+971501234567", "user1234@", "محمد", "احمد", "mohammed", "jhonson", "xyz", "company 4", "a"];
   for (const q of queries) {
     const t0 = performance.now();
-    const result = await lib.list({ filter: { kind: "all" }, sort: "nameAsc", search: q, offset: 0, limit: 500, requestId: ++requestSeq });
+    const result = await lib.list({ channel: "aux", filter: { kind: "all" }, sort: "nameAsc", search: q, offset: 0, limit: 500, requestId: ++requestSeq });
     const t1 = performance.now();
     console.log(`${q.padEnd(16)} ${String(Math.round(t1 - t0)).padStart(5)} ms  rows=${result.rows.length} total=${result.total}`);
   }
   console.log("names like hassan smith:", lib.db.selectValue("SELECT COUNT(*) FROM contacts WHERE name_fold LIKE 'hassan smith%'"));
   const t0 = performance.now();
-  const page = lib.listPlain({ filter: { kind: "all" }, sort: "nameAsc", search: "", offset: Math.floor(total / 2), limit: 200, requestId: 1 });
+  const page = lib.listPlain({ channel: "aux", filter: { kind: "all" }, sort: "nameAsc", search: "", offset: Math.floor(total / 2), limit: 200, requestId: 1 });
   console.log(`plain page@${Math.floor(total / 2)}  ${Math.round(performance.now() - t0)} ms rows=${page.rows.length}`);
   const c0 = performance.now();
   lib.touch();

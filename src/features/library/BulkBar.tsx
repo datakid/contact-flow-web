@@ -2,9 +2,10 @@ import { Download, FolderMinus, FolderPlus, GitMerge, MessageSquare, SquarePen, 
 import { addToGroup, removeFromGroup, setStarred } from "../../app/actions";
 import { formatNumber, useT } from "../../app/i18n";
 import { useApp } from "../../app/store";
-import { Button, DropdownMenu, IconButton } from "../../ui/primitives";
+import { Button, DropdownMenu, IconButton, Spinner } from "../../ui/primitives";
 import type { MenuEntry } from "../../ui/primitives";
 import { db } from "../../app/db";
+import { useSelectionCount } from "../../app/useSelectionCount";
 import type { LibraryList } from "./useLibraryList";
 
 export function BulkBar({ list }: { list: LibraryList }) {
@@ -14,12 +15,14 @@ export function BulkBar({ list }: { list: LibraryList }) {
   const allMatching = useApp((s) => s.allMatching);
   const groups = useApp((s) => s.counts?.groups ?? []);
   const filter = useApp((s) => s.filter);
-  const count = allMatching ? list.total : selected.size;
-  if (count === 0) return null;
+  useApp((s) => s.search);
   const state = useApp.getState();
+  const matching = useSelectionCount(allMatching ? state.currentSelection() : null);
+  const count = allMatching ? matching : selected.size;
+  if (count === 0) return null;
   const selection = () => state.currentSelection();
   const groupEntries = (fn: (id: number) => void): MenuEntry[] => groups.map((g) => ({ key: `g${g.id}`, label: g.name, onSelect: () => fn(g.id) }));
-  const canSelectAll = !allMatching && list.total > selected.size;
+  const canSelectAll = !allMatching && list.matchTotal > selected.size;
   const mergeEnabled = !allMatching && selected.size >= 2 && selected.size <= 10;
   const onMerge = async (): Promise<void> => {
     const ids = [...selected];
@@ -27,19 +30,19 @@ export function BulkBar({ list }: { list: LibraryList }) {
     const present = contacts.filter((c): c is NonNullable<typeof c> => c !== null);
     const keep = [...present].sort((a, b) => b.phones.length + b.emails.length - (a.phones.length + a.emails.length))[0];
     if (!keep) return;
-    await db.mergeGroup(keep.id, ids, t("merged", ids.length));
+    const merged = await db.mergeGroup(keep.id, ids, t("merged", ids.length));
     state.clearSelection();
     state.setFocused(keep.id);
     await state.refresh();
-    state.toast(t("merged", ids.length), "last");
+    state.toast(t("merged", ids.length), merged.historyId);
   };
   return (
     <div className="pointer-events-none absolute inset-x-3 bottom-3 z-20 flex justify-center">
       <div className="pointer-events-auto flex max-w-full items-center gap-1 overflow-x-auto rounded-2xl border border-line bg-card px-2 py-1.5 shadow-[var(--shadow)] anim-pop scroll-thin">
-        <span className="px-2 text-sm font-bold whitespace-nowrap">{t("nSelectedBar", count).replace(/^[\d,.\s]+/, `${formatNumber(lang, count)}`)}</span>
+        <span className="px-2 text-sm font-bold whitespace-nowrap">{count === null ? <Spinner size={14} /> : t("nSelectedBar", count).replace(/^[\d,.\s]+/, `${formatNumber(lang, count)}`)}</span>
         {canSelectAll ? (
           <Button size="sm" variant="soft" onClick={() => state.selectAllMatching()}>
-            {t("selectAllMatching", list.total)}
+            {t("selectAllMatching", list.matchTotal)}
           </Button>
         ) : null}
         <IconButton label={t("star")} onClick={() => void setStarred(selection(), true)}>

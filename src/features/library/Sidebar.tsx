@@ -66,9 +66,9 @@ function GroupItem({ group, active, collapsed }: { group: GroupInfo; active: boo
     { key: "rename", label: t("renameGroup"), onSelect: () => { setDraft(group.name); setRenaming(true); } },
     { key: "color", label: t("changeColor"), children: SWATCHES.map((c) => ({ key: c, label: c, icon: <span className="size-3 rounded-full" style={{ background: c }} />, onSelect: () => void db.recolorGroup(group.id, c).then(() => state.getState().refresh()) })) },
     { key: "members", label: t("selectMembers"), onSelect: () => { state.getState().setFilter({ kind: "group", groupId: group.id }); state.getState().selectAllMatching(); } },
-    { key: "export", label: t("exportGroup"), onSelect: () => state.getState().openDialog("export", { kind: "filter", filter: { kind: "group", groupId: group.id }, search: "" }) },
+    { key: "export", label: t("exportGroup"), onSelect: () => state.getState().openDialog("export", { kind: "filter", filter: { kind: "group", groupId: group.id }, search: "", exclude: [] }) },
     { key: "sep", label: "", separator: true },
-    { key: "delete", label: t("deleteGroup"), danger: true, onSelect: () => void db.deleteGroup(group.id).then(async () => { const s = state.getState(); if (s.filter.kind === "group" && s.filter.groupId === group.id) s.setFilter({ kind: "all" }); await s.refresh(); s.toast(t("deleted", 1), "last"); }) }
+    { key: "delete", label: t("deleteGroup"), danger: true, onSelect: () => void db.deleteGroup(group.id).then(async (result) => { const s = state.getState(); if (s.filter.kind === "group" && s.filter.groupId === group.id) s.setFilter({ kind: "all" }); await s.refresh(); s.toast(t("deleted", 1), result.historyId); }) }
   ];
   if (renaming) {
     return (
@@ -149,7 +149,7 @@ export function Sidebar({ collapsed, drawer }: { collapsed: boolean; drawer?: bo
         </div>
         <div className="space-y-0.5">
           {!show ? <div className="px-2.5 pb-1 pt-2 text-[11px] font-bold uppercase tracking-wider text-muted rtl:tracking-normal">{t("tools")}</div> : null}
-          <NavItem icon={<SquarePen size={16} />} label={t("batchEdit")} active={false} collapsed={show} onClick={() => openDialog("batch", { kind: "filter", filter, search: useApp.getState().search })} />
+          <NavItem icon={<SquarePen size={16} />} label={t("batchEdit")} active={false} collapsed={show} onClick={() => openDialog("batch", { kind: "filter", filter, search: useApp.getState().search, exclude: [] })} />
           <NavItem icon={<MessageSquare size={16} />} label={t("messageQueue")} active={false} collapsed={show} onClick={() => openDialog("queue")} />
           <NavItem icon={<History size={16} />} label={t("history")} active={false} collapsed={show} onClick={() => openDialog("history")} />
         </div>

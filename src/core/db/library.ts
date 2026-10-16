@@ -3,14 +3,23 @@ import { firstLetterOf, fold, sortKeyOf } from "../fold";
 import { parsePhone } from "../phone";
 import { phoneticKey } from "../phonetic";
 import { buildSearchText } from "../searchText";
-import type { Contact, ContactInput, GroupInfo, LabeledValue, LibraryCounts, LibraryFilter, ListQuery, ListResult, SortKey, ContactRow } from "../types";
+import type { Contact, ContactInput, GroupInfo, LabeledValue, LibraryCounts, LibraryFilter, ListQuery, ListResult, RequestChannel, SortKey, ContactRow } from "../types";
 import { GROUP_COLORS, HISTORY_LIMIT, RECENT_WINDOW_MS, filterWhere, newContactId, sortClause } from "./filters";
 import { PRAGMAS, SCHEMA } from "./schema";
 import { searchLibrary } from "./search";
 import { chunk, normalizeBinds, num, placeholders, str, yieldToEventLoop } from "./sql";
 import type { SqlDb, SqlValue } from "./sql";
 
-export type Selection = { kind: "ids"; ids: string[] } | { kind: "filter"; filter: LibraryFilter; search: string };
+export function isStaleRequest(latest: ReadonlyMap<RequestChannel, number>, channel: RequestChannel, requestId: number): boolean {
+  return channel !== "aux" && (latest.get(channel) ?? 0) > requestId;
+}
+
+export type Selection = { kind: "ids"; ids: string[] } | { kind: "filter"; filter: LibraryFilter; search: string; exclude: string[] };
+
+export interface MutationResult {
+  count: number;
+  historyId: string | null;
+}
 
 export interface HistoryEntry {
   id: string;
@@ -24,14 +33,14 @@ export interface HistoryPayload {
   type: "snapshots" | "star" | "group";
   before: Contact[];
   created: string[];
-  star?: Array<[string, number]>;
+  star?: Array<[string, number] | [string, number, number]>;
   group?: { id: number; name: string; color: string; memberIds: string[] };
 }
 
 export class Library {
   readonly db: SqlDb;
   country: CountryCode = "US";
-  latestRequest = 0;
+  latestByChannel = new Map<RequestChannel, number>();
   mutationVersion = 0;
   duplicatesVersion = -1;
   duplicateGroupCount = 0;
@@ -292,6 +301,11 @@ export class Library {
       const where = filterWhere(selection.filter, Date.now());
       this.db.exec({ sql: `INSERT OR IGNORE INTO sel(rowid) SELECT c.rowid FROM contacts c WHERE ${where.sql}`, bind: where.args });
     }
+    if (selection.kind === "filter") {
+      for (const part of chunk(selection.exclude, 400)) {
+        this.db.exec({ sql: `DELETE FROM sel WHERE rowid IN (SELECT rowid FROM contacts WHERE id IN (${placeholders(part.length)}))`, bind: [...part] });
+      }
+    }
     return num(this.db.selectValue("SELECT COUNT(*) FROM sel"));
   }
 
@@ -299,9 +313,13 @@ export class Library {
     return this.db.selectValues("SELECT rowid FROM sel ORDER BY rowid").map(num);
   }
 
-  async yieldIfStale(requestId: number): Promise<boolean> {
+  noteRequest(channel: RequestChannel, requestId: number): void {
+    this.latestByChannel.set(channel, Math.max(this.latestByChannel.get(channel) ?? 0, requestId));
+  }
+
+  async yieldIfStale(channel: RequestChannel, requestId: number): Promise<boolean> {
     await yieldToEventLoop();
-    return this.latestRequest !== requestId;
+    return isStaleRequest(this.latestByChannel, channel, requestId);
   }
 
   bytesUsed(): number {

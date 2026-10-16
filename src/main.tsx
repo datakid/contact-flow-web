@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./app/App";
+import { useApp } from "./app/store";
 import "./styles/index.css";
 
 const container = document.getElementById("root");
@@ -14,8 +15,6 @@ if (container) {
 
 window.addEventListener("unhandledrejection", (event) => {
   event.preventDefault();
-  import("./app/store").then(({ useApp }) => {
-    const message = event.reason instanceof Error ? event.reason.message : String(event.reason);
-    useApp.getState().toast(message, null, "error");
-  });
+  const message = event.reason instanceof Error ? event.reason.message : String(event.reason);
+  useApp.getState().toast(message, null, "error");
 });

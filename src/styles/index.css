@@ -24,6 +24,8 @@
   --color-good: var(--good);
   --color-good-soft: var(--good-soft);
   --color-danger: var(--danger);
+  --color-accent-strong: var(--accent-strong);
+  --color-good-strong: var(--good-strong);
   --font-sans: "Manrope", "IBM Plex Sans Arabic", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-serif: "Instrument Serif", "Noto Naskh Arabic", Georgia, serif;
 }
@@ -35,7 +37,7 @@
   --line: #e6ded0;
   --ink: #1a1714;
   --ink-2: #4a433c;
-  --muted: #8c8378;
+  --muted: #6b6358;
   --faint: #b4ab9e;
   --accent: #e8664a;
   --accent-ink: #ffffff;
@@ -43,6 +45,9 @@
   --good: #6e8b6a;
   --good-soft: #e6ecdf;
   --danger: #c8442b;
+  --on-danger: #ffffff;
+  --accent-strong: #a8361f;
+  --good-strong: #44603f;
   --scrim: rgba(26, 23, 20, 0.45);
   --shadow: 0 10px 40px rgba(40, 30, 20, 0.14);
   color-scheme: light;
@@ -62,6 +67,9 @@
   --good: #9ab594;
   --good-soft: #232b21;
   --danger: #f07a60;
+  --on-danger: #1a1714;
+  --accent-strong: #f08a70;
+  --good-strong: #9ab594;
   --scrim: rgba(0, 0, 0, 0.6);
   --shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
   color-scheme: dark;
@@ -75,6 +83,7 @@ html,
 body,
 #root {
   height: 100%;
+  height: 100dvh;
   margin: 0;
 }
 
@@ -100,10 +109,19 @@ button {
   cursor: pointer;
 }
 
+button.btn-danger {
+  color: var(--on-danger);
+}
+
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
-  border-radius: 8px;
+}
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
 }
 
 ::selection {

@@ -1,16 +1,17 @@
 import { create } from "zustand";
 import { db } from "./db";
+import { translate } from "./i18n";
 import type { Selection } from "../core/db/library";
 import type { Language, LayoutMode, LibraryCounts, LibraryFilter, SortKey, ThemeMode } from "../core/types";
 import { defaultSortFor } from "../core/db/filters";
 
-export type DialogName = "import" | "export" | "batch" | "duplicates" | "queue" | "history" | "settings" | "palette" | "shortcuts" | "create" | "confirmDelete" | null;
+export type DialogName = "import" | "export" | "batch" | "duplicates" | "queue" | "history" | "settings" | "palette" | "shortcuts" | "create" | "confirmDelete" | "selftest" | null;
 export type ViewMode = "list" | "table";
 
 export interface ToastItem {
   id: number;
   message: string;
-  undoId: string | null;
+  undoId: string | string[] | null;
   tone: "info" | "error";
 }
 
@@ -68,6 +69,7 @@ interface AppState extends Persisted {
   search: string;
   selected: Set<string>;
   allMatching: boolean;
+  excluded: Set<string>;
   anchorIndex: number | null;
   focusedId: string | null;
   version: number;
@@ -89,10 +91,11 @@ interface AppState extends Persisted {
   setFilter: (filter: LibraryFilter) => void;
   setSearch: (search: string) => void;
   setSelected: (ids: Set<string>, anchor?: number | null) => void;
-  toggleSelected: (id: string, index: number) => void;
+  toggleSelected: (id: string, index: number, matchTotal?: number) => void;
+  isSelected: (id: string) => boolean;
   selectAllMatching: () => void;
   clearSelection: () => void;
-  setFocused: (id: string | null) => void;
+  setFocused: (id: string | null, index?: number) => void;
   toggleSidebar: () => void;
   setWidths: (widths: Partial<PaneWidths>) => void;
   openDialog: (dialog: DialogName, target?: Selection | null) => void;
@@ -101,10 +104,9 @@ interface AppState extends Persisted {
   setMobileSidebar: (open: boolean) => void;
   refresh: () => Promise<void>;
   loadCounts: () => Promise<void>;
-  toast: (message: string, undoId?: string | null, tone?: "info" | "error") => void;
+  toast: (message: string, undoId?: string | string[] | null, tone?: "info" | "error") => void;
   dismissToast: (id: number) => void;
   currentSelection: () => Selection;
-  selectionCount: () => number;
   init: () => Promise<void>;
 }
 
@@ -133,6 +135,7 @@ export const useApp = create<AppState>((set, get) => {
     search: "",
     selected: new Set<string>(),
     allMatching: false,
+    excluded: new Set<string>(),
     anchorIndex: null,
     focusedId: null,
     version: 0,
@@ -167,19 +170,35 @@ export const useApp = create<AppState>((set, get) => {
       save();
     },
     setFilter: (filter) => {
-      set({ filter, sort: defaultSortFor(filter) === "nameAsc" ? (get().sort === "added" || get().sort === "edited" ? "nameAsc" : get().sort) : defaultSortFor(filter), selected: new Set(), allMatching: false, anchorIndex: null, mobileSidebarOpen: false });
+      set({ filter, sort: defaultSortFor(filter) === "nameAsc" ? (get().sort === "added" || get().sort === "edited" ? "nameAsc" : get().sort) : defaultSortFor(filter), selected: new Set(), allMatching: false, excluded: new Set(), anchorIndex: null, mobileSidebarOpen: false });
     },
-    setSearch: (search) => set({ search, selected: new Set(), allMatching: false, anchorIndex: null }),
-    setSelected: (ids, anchor) => set({ selected: ids, allMatching: false, anchorIndex: anchor === undefined ? get().anchorIndex : anchor }),
-    toggleSelected: (id, index) => {
-      const next = new Set(get().selected);
+    setSearch: (search) => set({ search, selected: new Set(), allMatching: false, excluded: new Set(), anchorIndex: null }),
+    setSelected: (ids, anchor) => set({ selected: ids, allMatching: false, excluded: new Set(), anchorIndex: anchor === undefined ? get().anchorIndex : anchor }),
+    toggleSelected: (id, index, matchTotal) => {
+      const state = get();
+      if (state.allMatching) {
+        const excluded = new Set(state.excluded);
+        if (excluded.has(id)) excluded.delete(id);
+        else excluded.add(id);
+        if (matchTotal !== undefined && excluded.size >= matchTotal) {
+          state.clearSelection();
+          return;
+        }
+        set({ excluded, anchorIndex: index });
+        return;
+      }
+      const next = new Set(state.selected);
       if (next.has(id)) next.delete(id);
       else next.add(id);
-      set({ selected: next, allMatching: false, anchorIndex: index });
+      set({ selected: next, allMatching: false, excluded: new Set(), anchorIndex: index });
     },
-    selectAllMatching: () => set({ allMatching: true }),
-    clearSelection: () => set({ selected: new Set(), allMatching: false, anchorIndex: null }),
-    setFocused: (focusedId) => set({ focusedId, mobileDetailOpen: focusedId !== null }),
+    isSelected: (id) => {
+      const state = get();
+      return state.allMatching ? !state.excluded.has(id) : state.selected.has(id);
+    },
+    selectAllMatching: () => set({ allMatching: true, excluded: new Set(), selected: new Set() }),
+    clearSelection: () => set({ selected: new Set(), allMatching: false, excluded: new Set(), anchorIndex: null }),
+    setFocused: (focusedId, index) => set({ focusedId, mobileDetailOpen: focusedId !== null, ...(index !== undefined ? { anchorIndex: index } : {}) }),
     toggleSidebar: () => {
       set({ sidebarCollapsed: !get().sidebarCollapsed });
       save();
@@ -215,12 +234,8 @@ export const useApp = create<AppState>((set, get) => {
     dismissToast: (id) => set({ toasts: get().toasts.filter((t) => t.id !== id) }),
     currentSelection: () => {
       const s = get();
-      if (s.allMatching) return { kind: "filter", filter: s.filter, search: s.search };
+      if (s.allMatching) return { kind: "filter", filter: s.filter, search: s.search, exclude: [...s.excluded] };
       return { kind: "ids", ids: [...s.selected] };
-    },
-    selectionCount: () => {
-      const s = get();
-      return s.allMatching ? Number.MAX_SAFE_INTEGER : s.selected.size;
     },
     init: async () => {
       if (initStarted) return;
@@ -236,7 +251,7 @@ export const useApp = create<AppState>((set, get) => {
         }
         await get().loadCounts();
         set({ ready: true, persistent: info.persistent, defaultCountry: info.defaultCountry, initError: null });
-        if (info.migrated > 0) get().toast(`${info.migrated.toLocaleString()} contacts moved to the new library`);
+        if (info.migrated > 0) get().toast(translate(get().lang, "migratedToast", info.migrated));
         if (info.persistent && navigator.storage?.persist) void navigator.storage.persist();
         void db.refreshDuplicates().then(() => get().loadCounts());
       } catch (error) {

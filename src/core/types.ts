@@ -76,7 +76,10 @@ export type LibraryFilter =
 
 export type SortKey = "nameAsc" | "nameDesc" | "added" | "edited" | "company";
 
+export type RequestChannel = "library" | "palette" | "aux";
+
 export interface ListQuery {
+  channel: RequestChannel;
   filter: LibraryFilter;
   sort: SortKey;
   search: string;

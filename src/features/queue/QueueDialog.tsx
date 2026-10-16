@@ -1,13 +1,15 @@
 import { MessageCircle, Play, Send, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { copyText, messageUrl } from "../../app/actions";
+import { copyText } from "../../app/actions";
+import type { CountryCode } from "libphonenumber-js/max";
+import { messageUrl } from "../../core/messaging";
 import { db } from "../../app/db";
 import { formatNumber, useT } from "../../app/i18n";
 import { useApp } from "../../app/store";
 import { styleNumber } from "../../core/phone";
 import { fillTokens } from "../../core/ops/ops";
 import type { Contact } from "../../core/types";
-import { Avatar, Button, Modal, ProgressBar, Segmented, cx } from "../../ui/primitives";
+import { Avatar, Button, LinkButton, Modal, ProgressBar, Segmented, cx } from "../../ui/primitives";
 
 type Channel = "sms" | "whatsapp" | "signal";
 
@@ -103,13 +105,11 @@ export function QueueDialog() {
   const message = queue && current ? fillTokens(queue.template, current, queue.index + 1, true) : "";
   const done = queue ? queue.index >= queue.ids.length : false;
 
-  const openApp = async (): Promise<void> => {
-    if (!queue || !current) return;
-    const number = current.phones[0]?.value ?? "";
-    if (queue.channel === "signal") await copyText(message);
-    const link = messageUrl(queue.channel, number, message);
-    if (link.startsWith("http")) window.open(link, "_blank", "noopener");
-    else window.location.href = link;
+  const country = useApp((s) => s.defaultCountry) as CountryCode;
+  const sendLink = queue && current ? messageUrl(queue.channel, current.phones[0]?.value ?? "", country, message) : null;
+  const onSent = (): void => {
+    if (!queue) return;
+    if (queue.channel === "signal") void copyText(message);
     window.setTimeout(() => void advance(queue), 300);
   };
 
@@ -134,9 +134,9 @@ export function QueueDialog() {
               <div className="w-full whitespace-pre-wrap rounded-xl bg-sunk p-3 text-start text-sm" dir="auto">{message}</div>
               <div className="flex flex-wrap justify-center gap-2">
                 <Button variant="ghost" onClick={() => void advance(queue)}>{t("skip")}</Button>
-                <Button variant="primary" onClick={() => void openApp()}>
+                <LinkButton variant="primary" href={sendLink} onClick={onSent} disabledReason={t(current.phones.length > 0 ? "needsCountryCode" : "noNumberToMessage")}>
                   {queue.channel === "whatsapp" ? <MessageCircle size={15} /> : <Send size={15} />} {t("openApp")} · {t(queue.channel)}
-                </Button>
+                </LinkButton>
               </div>
             </div>
           )}

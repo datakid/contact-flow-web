@@ -6,7 +6,7 @@ import { phoneticKey } from "../phonetic";
 import { pinyinOf, trigramsOf } from "../searchText";
 import { arabicToLatin, latinToArabic, skeletonsOf } from "../translit";
 import { ARABIC_RE } from "../fold";
-import type { LibraryFilter, MatchTag } from "../types";
+import type { LibraryFilter, MatchTag, RequestChannel } from "../types";
 import { filterWhere } from "./filters";
 import type { Library } from "./library";
 import { num, str } from "./sql";
@@ -218,6 +218,7 @@ function scoreRow(qf: string, qTokens: string[], isNumber: boolean, numberVarian
 
 export interface SearchOptions {
   requestId: number | null;
+  channel?: RequestChannel;
   all: boolean;
 }
 
@@ -246,7 +247,8 @@ function ftsMatchFor(qf: string, qTokens: string[]): string | null {
 export async function searchLibrary(lib: Library, query: string, filter: LibraryFilter, requestIdOrOptions: number | null | SearchOptions): Promise<SearchOutcome | null> {
   const options: SearchOptions = typeof requestIdOrOptions === "object" && requestIdOrOptions !== null ? requestIdOrOptions : { requestId: requestIdOrOptions, all: requestIdOrOptions === null };
   const requestId = options.requestId;
-  const stale = async (): Promise<boolean> => (requestId === null ? false : await lib.yieldIfStale(requestId));
+  const channel = options.channel ?? "library";
+  const stale = async (): Promise<boolean> => (requestId === null ? false : await lib.yieldIfStale(channel, requestId));
   const qf = fold(query).trim().replace(/\s+/g, " ");
   if (!qf) return { results: [], total: 0 };
   const compact = qf.replace(/[\s\-().]/g, "");

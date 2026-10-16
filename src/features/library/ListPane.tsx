@@ -1,7 +1,9 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Copy, EllipsisVertical, Pencil, Star, StickyNote } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useRef } from "react";
-import { addToGroup, copyText, deleteSelection, findDuplicatesOf, messageUrl, shareVCard, toggleStar } from "../../app/actions";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { addToGroup, copyText, deleteSelection, findDuplicatesOf, shareVCard, toggleStar } from "../../app/actions";
+import type { CountryCode } from "libphonenumber-js/max";
+import { messageUrl } from "../../core/messaging";
 import { db } from "../../app/db";
 import { translate, useT } from "../../app/i18n";
 import type { TFunction } from "../../app/i18n";
@@ -84,6 +86,15 @@ async function selectRange(list: LibraryList, anchor: number, index: number): Pr
   const to = Math.min(Math.max(anchor, index), from + MAX_RANGE - 1);
   if (Math.max(anchor, index) > to) state.toast(translate(state.lang, "rangeTooLarge"));
   await list.ensureRange(from, to);
+  if (state.allMatching) {
+    const excluded = new Set(state.excluded);
+    for (let i = from; i <= to; i++) {
+      const r = list.getRow(i);
+      if (r) excluded.delete(r.id);
+    }
+    useApp.setState({ excluded });
+    return;
+  }
   const ids = new Set(state.selected);
   for (let i = from; i <= to; i++) {
     const r = list.getRow(i);
@@ -95,6 +106,7 @@ async function selectRange(list: LibraryList, anchor: number, index: number): Pr
 function useRowMenu(row: ContactRow): () => MenuEntry[] {
   const t = useT();
   const groups = useApp((s) => s.counts?.groups ?? []);
+  const country = useApp((s) => s.defaultCountry) as CountryCode;
   const state = useApp;
   return useCallback((): MenuEntry[] => {
     const withContact = async (fn: (c: NonNullable<Awaited<ReturnType<typeof db.getContact>>>) => void | Promise<void>): Promise<void> => {
@@ -120,7 +132,10 @@ function useRowMenu(row: ContactRow): () => MenuEntry[] {
         key: "message",
         label: t("message"),
         disabled: !firstNumber,
-        children: (["whatsapp", "signal", "sms"] as const).map((channel) => ({ key: channel, label: t(channel), onSelect: () => window.open(messageUrl(channel, firstNumber), "_blank", "noopener") }))
+        children: (["whatsapp", "signal", "sms"] as const).map((channel) => {
+          const href = firstNumber ? messageUrl(channel, firstNumber, country) : null;
+          return { key: channel, label: href ? t(channel) : `${t(channel)} · ${t("needsCountryCode")}`, href: href ?? undefined, disabled: !href };
+        })
       },
       { key: "dups", label: t("findDuplicatesOf"), onSelect: () => void withContact(findDuplicatesOf) },
       { key: "sep2", label: "", separator: true },
@@ -130,13 +145,21 @@ function useRowMenu(row: ContactRow): () => MenuEntry[] {
 }
 
 const ContactRowView = memo(function ContactRowView({ row, index, hits, focused, selected, anySelected, onActivate, onToggle, onEdit }: RowProps) {
+  const pressRef = useRef<number | null>(null);
+  const startRef = useRef({ x: 0, y: 0 });
+  const suppressClickRef = useRef(false);
+  const clearPress = (): void => {
+    if (pressRef.current !== null) window.clearTimeout(pressRef.current);
+    pressRef.current = null;
+  };
   const t = useT();
   const menu = useRowMenu(row);
   const second = [row.primaryPhone, row.company].filter(Boolean).join(" · ");
   return (
     <ContextMenu entries={menu}>
       <div
-        role="option"
+        role="row"
+        aria-rowindex={index + 1}
         aria-selected={focused}
         data-row-id={row.id}
         draggable
@@ -146,18 +169,48 @@ const ContactRowView = memo(function ContactRowView({ row, index, hits, focused,
           e.dataTransfer.setData("application/x-cf-ids", JSON.stringify(ids));
           e.dataTransfer.effectAllowed = "copy";
         }}
-        onClick={(e) => onActivate(row, index, e)}
-        className={cx("group relative flex h-14 cursor-default items-center gap-3 border-b border-line/60 px-3", focused ? "bg-accent-soft" : selected ? "bg-sunk" : "hover:bg-sunk/70")}
+        onPointerDown={(e) => {
+          if (e.pointerType !== "touch") return;
+          startRef.current = { x: e.clientX, y: e.clientY };
+          clearPress();
+          const target = e.currentTarget;
+          pressRef.current = window.setTimeout(() => {
+            pressRef.current = null;
+            suppressClickRef.current = true;
+            target.dispatchEvent(new PointerEvent("pointercancel", { pointerType: "touch", bubbles: true }));
+            onToggle(row, index, false);
+          }, 500);
+        }}
+        onContextMenu={(e) => {
+          if (suppressClickRef.current) e.preventDefault();
+        }}
+        onPointerMove={(e) => {
+          if (pressRef.current !== null && Math.hypot(e.clientX - startRef.current.x, e.clientY - startRef.current.y) > 10) clearPress();
+        }}
+        onPointerUp={clearPress}
+        onPointerCancel={clearPress}
+        onClick={(e) => {
+          if (suppressClickRef.current) {
+            suppressClickRef.current = false;
+            return;
+          }
+          if (anySelected && window.matchMedia("(pointer: coarse)").matches) {
+            onToggle(row, index, false);
+            return;
+          }
+          onActivate(row, index, e);
+        }}
+        className={cx("group relative flex h-full cursor-default items-center gap-3 border-b border-line/60 px-3", focused ? "bg-accent-soft" : selected ? "bg-sunk" : "hover:bg-sunk/70")}
       >
-        <div className="relative grid size-10 shrink-0 place-items-center">
+        <div role="gridcell" className="relative grid size-10 shrink-0 place-items-center">
           <div className={cx("transition-opacity", anySelected || selected ? "opacity-0" : "group-hover:opacity-0")}>
             <Avatar name={row.name} seed={row.id} />
           </div>
-          <div className={cx("absolute inset-0 grid place-items-center transition-opacity", anySelected || selected ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-within:opacity-100")} onClick={(e) => { e.stopPropagation(); onToggle(row, index, e.shiftKey); }}>
-            <Checkbox checked={selected} onCheckedChange={() => undefined} label={row.name} />
+          <div className={cx("absolute inset-0 grid place-items-center transition-opacity", anySelected || selected ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-within:opacity-100")}>
+            <Checkbox tabIndex={-1} checked={selected} onClick={(e) => onToggle(row, index, e.shiftKey)} label={t("selectContact", row.name || t("noName"))} />
           </div>
         </div>
-        <div className="min-w-0 flex-1">
+        <div role="gridcell" className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="truncate font-bold text-ink">{row.name ? <Highlighted text={row.name} hits={hits} /> : <span className="font-medium text-faint">{t("noName")}</span>}</span>
             {row.starred ? <Star size={12} className="shrink-0 fill-accent text-accent" aria-label={t("starred")} /> : null}
@@ -167,20 +220,20 @@ const ContactRowView = memo(function ContactRowView({ row, index, hits, focused,
             {row.matchTag === "alias" && row.matchAlias ? <span className="ms-2 text-accent">{t("aka")} {row.matchAlias}</span> : null}
           </div>
         </div>
-        {row.matchTag ? <Badge tone={row.matchTag === "exact" || row.matchTag === "startsWith" ? "accent" : "neutral"}>{t(TAG_KEYS[row.matchTag])}</Badge> : null}
-        <div className="absolute inset-y-0 end-2 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 [&>*]:bg-card/90">
-          <IconButton label={row.starred ? t("unstar") : t("star")} active={row.starred} onClick={(e) => { e.stopPropagation(); void toggleStar(row); }}>
+        {row.matchTag ? <div role="gridcell"><Badge tone={row.matchTag === "exact" || row.matchTag === "startsWith" ? "accent" : "neutral"}>{t(TAG_KEYS[row.matchTag])}</Badge></div> : null}
+        <div role="gridcell" className="absolute inset-y-0 end-2 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 [&>*]:bg-card/90">
+          <IconButton tabIndex={-1} label={row.starred ? t("unstar") : t("star")} active={row.starred} onClick={(e) => { e.stopPropagation(); void toggleStar(row); }}>
             <Star size={15} className={row.starred ? "fill-accent" : ""} />
           </IconButton>
-          <IconButton label={t("copyNumber")} disabled={!row.primaryPhone} onClick={(e) => { e.stopPropagation(); void copyText(row.primaryPhone); }}>
+          <IconButton tabIndex={-1} label={t("copyNumber")} disabled={!row.primaryPhone} onClick={(e) => { e.stopPropagation(); void copyText(row.primaryPhone); }}>
             <Copy size={15} />
           </IconButton>
-          <IconButton label={t("edit")} onClick={(e) => { e.stopPropagation(); onEdit(row); }}>
+          <IconButton tabIndex={-1} label={t("edit")} onClick={(e) => { e.stopPropagation(); onEdit(row); }}>
             <Pencil size={15} />
           </IconButton>
           <DropdownMenu
             trigger={
-              <IconButton label="More" onClick={(e) => e.stopPropagation()}>
+              <IconButton tabIndex={-1} label={t("more")} onClick={(e) => e.stopPropagation()}>
                 <EllipsisVertical size={15} />
               </IconButton>
             }
@@ -200,6 +253,7 @@ export function ListView({ list }: { list: LibraryList }) {
   const focusedId = useApp((s) => s.focusedId);
   const selected = useApp((s) => s.selected);
   const allMatching = useApp((s) => s.allMatching);
+  const excluded = useApp((s) => s.excluded);
   const parentRef = useRef<HTMLDivElement>(null);
   const hasLetters = !list.searching && list.letters.length > 0 && (sort === "nameAsc" || sort === "nameDesc");
   const starts = useMemo(() => list.letters.map((l, k) => l.offset + k), [list.letters]);
@@ -223,12 +277,24 @@ export function ListView({ list }: { list: LibraryList }) {
     [hasLetters, starts]
   );
 
+  const getItemKey = useCallback(
+    (i: number): string => {
+      const r = resolve(i);
+      return "header" in r ? `h${r.header}:${list.letters[r.header]?.letter ?? ""}` : `r${r.row}`;
+    },
+    [resolve, list.letters]
+  );
+
   const virtualizer = useVirtualizer({
     count: itemCount,
     getScrollElement: () => parentRef.current,
     estimateSize: (i) => ("header" in resolve(i) ? HEADER_HEIGHT : ROW_HEIGHT),
+    getItemKey,
     overscan: 12
   });
+  useLayoutEffect(() => {
+    virtualizer.measure();
+  }, [virtualizer, getItemKey, itemCount]);
   const items = virtualizer.getVirtualItems();
 
   useEffect(() => {
@@ -265,14 +331,14 @@ export function ListView({ list }: { list: LibraryList }) {
     (row: ContactRow, index: number, event: React.MouseEvent) => {
       const state = useApp.getState();
       if (event.metaKey || event.ctrlKey) {
-        state.toggleSelected(row.id, index);
+        state.toggleSelected(row.id, index, list.matchTotal);
         return;
       }
       if (event.shiftKey && state.anchorIndex !== null) {
         void selectRange(list, state.anchorIndex, index);
         return;
       }
-      state.setFocused(row.id);
+      state.setFocused(row.id, index);
     },
     [list]
   );
@@ -284,7 +350,7 @@ export function ListView({ list }: { list: LibraryList }) {
         void selectRange(list, state.anchorIndex, index);
         return;
       }
-      state.toggleSelected(row.id, index);
+      state.toggleSelected(row.id, index, list.matchTotal);
     },
     [list]
   );
@@ -336,15 +402,15 @@ export function ListView({ list }: { list: LibraryList }) {
 
   return (
     <div className="relative flex min-h-0 flex-1">
-      <div ref={parentRef} role="listbox" aria-multiselectable="true" className="scroll-thin relative min-h-0 flex-1 overflow-auto">
-        {stickyLetter ? <div className="serif pointer-events-none sticky top-0 z-10 -mb-[30px] h-[30px] bg-paper/95 px-4 text-lg leading-[30px] text-accent backdrop-blur">{stickyLetter}</div> : null}
+      <div ref={parentRef} role="grid" aria-label={t("contactsList")} aria-multiselectable="true" aria-rowcount={list.total} className="scroll-thin relative min-h-0 flex-1 overflow-auto">
+        {stickyLetter && (virtualizer.scrollOffset ?? 0) > 0 ? <div aria-hidden="true" className="serif pointer-events-none sticky top-0 z-10 -mb-[30px] h-[30px] bg-paper px-4 text-lg leading-[30px] text-accent">{stickyLetter}</div> : null}
         <div style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%" }}>
           {items.map((item) => {
             const r = resolve(item.index);
             const style: React.CSSProperties = { position: "absolute", insetBlockStart: 0, insetInlineStart: 0, width: "100%", height: item.size, transform: `translateY(${item.start}px)` };
             if ("header" in r) {
               return (
-                <div key={`h${item.index}`} style={style} className="serif flex items-end bg-paper px-4 pb-0.5 text-lg text-accent">
+                <div key={`h${item.index}`} style={style} aria-hidden="true" className="serif flex items-end overflow-hidden bg-paper px-4 pb-0.5 text-lg text-accent">
                   {list.letters[r.header]?.letter}
                 </div>
               );
@@ -352,15 +418,15 @@ export function ListView({ list }: { list: LibraryList }) {
             const row = list.getRow(r.row);
             if (!row) {
               return (
-                <div key={`s${item.index}`} style={style} className="flex items-center gap-3 border-b border-line/60 px-3">
+                <div key={`s${r.row}`} style={style} aria-hidden="true" className="flex items-center gap-3 overflow-hidden border-b border-line/60 px-3">
                   <div className="size-10 animate-pulse rounded-full bg-sunk" />
                   <div className="h-3 w-40 animate-pulse rounded bg-sunk" />
                 </div>
               );
             }
             return (
-              <div key={row.id} style={style}>
-                <ContactRowView row={row} index={r.row} hits={hits} focused={focusedId === row.id} selected={allMatching || selected.has(row.id)} anySelected={allMatching || selected.size > 0} onActivate={onActivate} onToggle={onToggle} onEdit={onEdit} />
+              <div key={row.id} style={style} className="overflow-hidden">
+                <ContactRowView row={row} index={r.row} hits={hits} focused={focusedId === row.id} selected={allMatching ? !excluded.has(row.id) : selected.has(row.id)} anySelected={allMatching || selected.size > 0} onActivate={onActivate} onToggle={onToggle} onEdit={onEdit} />
               </div>
             );
           })}

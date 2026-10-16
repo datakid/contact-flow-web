@@ -77,7 +77,7 @@ export const legacyEn = {
   "deleted": (n: number): string => `Deleted ${n}`,
   "undo": "Undo",
   "undone": "Undone",
-  "confirmDelete": (n: number): string => `Delete ${n === 1 ? 'this contact' : n + ' contacts'}?`,
+  "confirmDelete": (n: number): string => `Delete ${n === 1 ? 'this contact' : n.toLocaleString() + ' contacts'}?`,
   "confirmDeleteBody": "A backup is kept in Settings → History, so you can undo this.",
   "groupName": "Group name",
   "importTitle": "Import",

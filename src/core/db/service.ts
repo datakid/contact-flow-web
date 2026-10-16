@@ -3,7 +3,7 @@ import type { Contact, ContactInput, ContactRow, ListQuery, ListResult } from ".
 import { describeView, differs, opByKey } from "../ops/ops";
 import type { Params } from "../ops/ops";
 import { Library, toRow } from "./library";
-import type { HistoryEntry, HistoryPayload, Selection } from "./library";
+import type { HistoryEntry, HistoryPayload, MutationResult, Selection } from "./library";
 import { searchLibrary } from "./search";
 import { chunk, num, placeholders, str, yieldToEventLoop } from "./sql";
 
@@ -73,14 +73,14 @@ export function mergeContacts(target: Contact, source: Contact): Contact {
 
 export class LibraryService extends Library {
   async list(query: ListQuery): Promise<ListResult> {
-    this.latestRequest = Math.max(this.latestRequest, query.requestId);
+    this.noteRequest(query.channel, query.requestId);
     const started = performance.now();
     if (!query.search.trim()) {
       if (query.filter.kind === "duplicates") this.ensureDuplicates();
       return this.listPlain(query);
     }
     if (query.filter.kind === "duplicates") this.ensureDuplicates();
-    const outcome = await searchLibrary(this, query.search, query.filter, { requestId: query.requestId, all: false });
+    const outcome = await searchLibrary(this, query.search, query.filter, { requestId: query.requestId, channel: query.channel, all: false });
     if (!outcome) return { requestId: query.requestId, rows: [], total: 0, offset: 0, cancelled: true, tookMs: performance.now() - started };
     const rowids = outcome.results.map((r) => r.rowid);
     const byRowid = new Map<number, ContactRow>();
@@ -101,18 +101,22 @@ export class LibraryService extends Library {
     return { requestId: query.requestId, rows, total: outcome.total, offset: 0, cancelled: false, tookMs: performance.now() - started };
   }
 
-  setStarred(selection: Selection, starred: boolean, label: string): Promise<number> {
+  countSelection(selection: Selection): Promise<number> {
+    return this.materializeSelection(selection);
+  }
+
+  setStarred(selection: Selection, starred: boolean, label: string): Promise<MutationResult> {
     return this.mutateSelection(selection, "star", label, (rowids, now) => {
-      const prev: Array<[string, number]> = [];
+      const prev: Array<[string, number, number]> = [];
       for (const part of chunk(rowids, 400)) {
-        for (const r of this.db.selectObjects(`SELECT id,starred FROM contacts WHERE rowid IN (${placeholders(part.length)})`, part)) prev.push([str(r.id), num(r.starred)]);
+        for (const r of this.db.selectObjects(`SELECT id,starred,updated_at FROM contacts WHERE rowid IN (${placeholders(part.length)})`, part)) prev.push([str(r.id), num(r.starred), num(r.updated_at)]);
         this.db.exec({ sql: `UPDATE contacts SET starred=?,updated_at=? WHERE rowid IN (${placeholders(part.length)})`, bind: [starred ? 1 : 0, now, ...part] });
       }
       return { type: "star", before: [], created: [], star: prev };
     });
   }
 
-  deleteContacts(selection: Selection, label: string): Promise<number> {
+  deleteContacts(selection: Selection, label: string): Promise<MutationResult> {
     return this.mutateSelection(selection, "delete", label, (rowids) => {
       const before = this.hydrate(rowids);
       this.deleteRowids(rowids);
@@ -120,7 +124,7 @@ export class LibraryService extends Library {
     });
   }
 
-  addToGroup(selection: Selection, groupId: number, label: string): Promise<number> {
+  addToGroup(selection: Selection, groupId: number, label: string): Promise<MutationResult> {
     return this.mutateSelection(selection, "group", label, (rowids, now) => {
       const before = this.hydrate(rowids);
       for (const part of chunk(rowids, 400)) {
@@ -131,7 +135,7 @@ export class LibraryService extends Library {
     });
   }
 
-  removeFromGroup(selection: Selection, groupId: number, label: string): Promise<number> {
+  removeFromGroup(selection: Selection, groupId: number, label: string): Promise<MutationResult> {
     return this.mutateSelection(selection, "group", label, (rowids, now) => {
       const before = this.hydrate(rowids);
       for (const part of chunk(rowids, 400)) {
@@ -142,17 +146,18 @@ export class LibraryService extends Library {
     });
   }
 
-  async mutateSelection(selection: Selection, kind: string, label: string, apply: (rowids: number[], now: number) => HistoryPayload): Promise<number> {
+  async mutateSelection(selection: Selection, kind: string, label: string, apply: (rowids: number[], now: number) => HistoryPayload): Promise<MutationResult> {
     const count = await this.materializeSelection(selection);
-    if (count === 0) return 0;
+    if (count === 0) return { count: 0, historyId: null };
     const rowids = this.selectedRowids();
     const now = Date.now();
+    let historyId: string | null = null;
     this.db.transaction(() => {
       const payload = apply(rowids, now);
-      this.recordHistory(kind, label, rowids.length, payload, now);
+      historyId = this.recordHistory(kind, label, rowids.length, payload, now);
     });
     this.touch();
-    return rowids.length;
+    return { count: rowids.length, historyId };
   }
 
   createGroup(name: string): number | null {
@@ -176,17 +181,19 @@ export class LibraryService extends Library {
     this.touch();
   }
 
-  deleteGroup(id: number): void {
+  deleteGroup(id: number): { historyId: string | null } {
     const row = this.db.selectObjects("SELECT id,name,color FROM groups WHERE id=?", [id])[0];
-    if (!row) return;
+    if (!row) return { historyId: null };
     const memberIds = this.db.selectValues("SELECT c.id FROM contact_groups cg JOIN contacts c ON c.rowid=cg.contact_rowid WHERE cg.group_id=?", [id]).map(str);
     const now = Date.now();
+    let historyId: string | null = null;
     this.db.transaction(() => {
       this.db.exec({ sql: "DELETE FROM contact_groups WHERE group_id=?", bind: [id] });
       this.db.exec({ sql: "DELETE FROM groups WHERE id=?", bind: [id] });
-      this.recordHistory("groupDelete", str(row.name), memberIds.length, { type: "group", before: [], created: [], group: { id, name: str(row.name), color: str(row.color), memberIds } }, now);
+      historyId = this.recordHistory("groupDelete", str(row.name), memberIds.length, { type: "group", before: [], created: [], group: { id, name: str(row.name), color: str(row.color), memberIds } }, now);
     });
     this.touch();
+    return { historyId };
   }
 
   listHistory(limit: number, offset: number): { entries: HistoryEntry[]; total: number } {
@@ -205,7 +212,10 @@ export class LibraryService extends Library {
     const now = Date.now();
     this.db.transaction(() => {
       if (payload.type === "star" && payload.star) {
-        for (const [id, value] of payload.star) this.db.exec({ sql: "UPDATE contacts SET starred=? WHERE id=?", bind: [value, id] });
+        for (const entry of payload.star) {
+          if (entry[2] === undefined) this.db.exec({ sql: "UPDATE contacts SET starred=? WHERE id=?", bind: [entry[1], entry[0]] });
+          else this.db.exec({ sql: "UPDATE contacts SET starred=?,updated_at=? WHERE id=?", bind: [entry[1], entry[2], entry[0]] });
+        }
       } else if (payload.type === "group" && payload.group) {
         const g = payload.group;
         this.db.exec({ sql: "INSERT OR REPLACE INTO groups(id,name,color,created_at) VALUES(?,?,?,?)", bind: [g.id, g.name, g.color, now] });
@@ -305,20 +315,21 @@ export class LibraryService extends Library {
     return { groups, total: all.length };
   }
 
-  mergeGroup(keepId: string, mergeIds: string[], label: string): Contact | null {
+  mergeGroup(keepId: string, mergeIds: string[], label: string): { contact: Contact | null; historyId: string | null } {
     const keep = this.getContact(keepId);
-    if (!keep) return null;
+    if (!keep) return { contact: null, historyId: null };
     const others = this.contactsByIds(mergeIds.filter((id) => id !== keepId));
     const now = Date.now();
     let merged = keep;
+    let historyId: string | null = null;
     for (const other of others) merged = mergeContacts(merged, other);
     this.db.transaction(() => {
       this.upsertInTransaction({ ...toInput(merged), updatedAt: now }, now);
       this.deleteRowids(others.map((o) => this.rowidOf(o.id)).filter((r): r is number => r !== null));
-      this.recordHistory("merge", label, others.length + 1, { type: "snapshots", before: [keep, ...others], created: [] }, now);
+      historyId = this.recordHistory("merge", label, others.length + 1, { type: "snapshots", before: [keep, ...others], created: [] }, now);
     });
     this.touch();
-    return this.getContact(keepId);
+    return { contact: this.getContact(keepId), historyId };
   }
 
   async batchPreview(selection: Selection, opKey: string, params: Params, limit: number): Promise<BatchPreview> {
@@ -346,10 +357,10 @@ export class LibraryService extends Library {
     return { total, changed, samples };
   }
 
-  async batchApply(selection: Selection, opKey: string, params: Params, label: string, onProgress?: (done: number, total: number) => void): Promise<number> {
+  async batchApply(selection: Selection, opKey: string, params: Params, label: string, onProgress?: (done: number, total: number) => void): Promise<MutationResult> {
     const op = opByKey(opKey);
     const total = await this.materializeSelection(selection);
-    if (!op || !op.ready(params)) return 0;
+    if (!op || !op.ready(params)) return { count: 0, historyId: null };
     const before: Contact[] = [];
     let index = 0;
     let after = 0;
@@ -373,9 +384,9 @@ export class LibraryService extends Library {
       onProgress?.(done, total);
       await yieldToEventLoop();
     }
-    if (before.length > 0) this.recordHistory("batch", label, before.length, { type: "snapshots", before, created: [] }, now);
+    const historyId = before.length > 0 ? this.recordHistory("batch", label, before.length, { type: "snapshots", before, created: [] }, now) : null;
     this.touch();
-    return before.length;
+    return { count: before.length, historyId };
   }
 
   async queueRecipients(selection: Selection, previewLimit: number): Promise<{ ids: string[]; preview: Contact[] }> {

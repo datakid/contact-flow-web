@@ -1,37 +1,17 @@
-import { expect, test } from "@playwright/test";
-import type { Page } from "@playwright/test";
+import { expect, fixturesDir, importFile, openApp, test } from "./fixtures";
 import { join } from "node:path";
-
-const fixtures = join(process.cwd(), "tests", "fixtures");
-
-async function openApp(page: Page): Promise<void> {
-  await page.goto("/");
-  await expect(page.getByRole("searchbox").first()).toBeVisible({ timeout: 30000 });
-}
-
-async function importFile(page: Page, file: string): Promise<void> {
-  await page.keyboard.press("Control+i");
-  await page.locator('input[type="file"]').setInputFiles(join(fixtures, file));
-  await page.getByRole("button", { name: /next|التالي/i }).click();
-  await page.getByRole("button", { name: /next|التالي/i }).click();
-  await page.getByRole("button", { name: /next|التالي/i }).click();
-  await expect(page.getByText(/New contacts|جهات جديدة/).first()).toBeVisible({ timeout: 60000 });
-  await page.getByRole("button", { name: /^import \d|^استيراد \d/i }).click();
-  await expect(page.getByText(/Import complete|اكتمل الاستيراد/)).toBeVisible({ timeout: 60000 });
-  await page.getByRole("button", { name: /^close$|^إغلاق$/i }).last().click();
-}
 
 test("imports the csv template and finds a contact by number", async ({ page }) => {
   await openApp(page);
   await importFile(page, "template.csv");
   await page.getByRole("searchbox").first().fill("415 555 0123");
-  await expect(page.getByRole("option", { name: /Sarah Johnson/ })).toBeVisible();
+  await expect(page.getByRole("row", { name: /Sarah Johnson/ })).toBeVisible();
 });
 
 test("a file named .csv that is really Excel is read as Excel", async ({ page }) => {
   await openApp(page);
   await page.keyboard.press("Control+i");
-  await page.locator('input[type="file"]').setInputFiles(join(fixtures, "template-misnamed.csv"));
+  await page.locator('input[type="file"]').setInputFiles(join(fixturesDir, "template-misnamed.csv"));
   await page.getByRole("button", { name: /next|التالي/i }).click();
   await expect(page.getByText(/looks like Excel/)).toBeVisible();
 });
@@ -40,13 +20,13 @@ test("windows-1256 arabic csv decodes correctly", async ({ page }) => {
   await openApp(page);
   await importFile(page, "contacts-ar-1256.csv");
   await page.getByRole("searchbox").first().fill("فاطمة");
-  await expect(page.getByRole("option", { name: /فاطمة الزهراء/ })).toBeVisible();
+  await expect(page.getByRole("row", { name: /فاطمة الزهراء/ })).toBeVisible();
 });
 
 test("large csv stays responsive and can be cancelled", async ({ page }) => {
   await openApp(page);
   await page.keyboard.press("Control+i");
-  await page.locator('input[type="file"]').setInputFiles(join(fixtures, "large.csv"));
+  await page.locator('input[type="file"]').setInputFiles(join(fixturesDir, "large.csv"));
   await page.getByRole("button", { name: /next|التالي/i }).click();
   await page.getByRole("button", { name: /next|التالي/i }).click();
   await page.getByRole("button", { name: /next|التالي/i }).click();
@@ -67,8 +47,11 @@ test("large csv stays responsive and can be cancelled", async ({ page }) => {
 test("star, undo and keyboard shortcuts", async ({ page }) => {
   await openApp(page);
   await page.keyboard.press("n");
-  await page.getByRole("textbox", { name: /^name$|^الاسم$/i }).first().fill("Test Person");
-  await page.getByRole("button", { name: /^save$|^حفظ$/i }).click();
+  const nameField = page.getByRole("textbox", { name: /^name$|^الاسم$/i }).first();
+  await nameField.fill("Test Person");
+  await nameField.press("Enter");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByRole("complementary", { name: "Test Person" })).toBeVisible();
   await page.keyboard.press("s");
   await expect(page.getByRole("button", { name: /unstar|إلغاء التمييز/i }).first()).toBeVisible();
   await page.keyboard.press("Control+z");

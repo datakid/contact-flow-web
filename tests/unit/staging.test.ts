@@ -40,10 +40,10 @@ describe("import staging", () => {
     expect(result.created).toBe(1);
     expect(result.updated).toBe(1);
     expect(result.skipped).toBe(1);
-    const mona = lib.listPlain({ filter: { kind: "all" }, sort: "nameAsc", search: "", offset: 0, limit: 50, requestId: 1 }).rows.find((r) => r.name === "Mona Said");
+    const mona = lib.listPlain({ channel: "aux", filter: { kind: "all" }, sort: "nameAsc", search: "", offset: 0, limit: 50, requestId: 1 }).rows.find((r) => r.name === "Mona Said");
     expect(mona).toBeDefined();
     expect(lib.getContact(mona?.id ?? "")?.company).toBe("Acme");
-    const added = lib.listPlain({ filter: { kind: "importBatch", batchId: result.batchId }, sort: "nameAsc", search: "", offset: 0, limit: 50, requestId: 2 });
+    const added = lib.listPlain({ channel: "aux", filter: { kind: "importBatch", batchId: result.batchId }, sort: "nameAsc", search: "", offset: 0, limit: 50, requestId: 2 });
     expect(added.total).toBe(1);
     expect(lib.getContact(added.rows[0]?.id ?? "")?.emails).toHaveLength(1);
     lib.undo(null);

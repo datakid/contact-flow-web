@@ -79,7 +79,7 @@ export const legacyAr = {
   "deleted": (n: number): string => `حُذفت ${n}`,
   "undo": "تراجع",
   "undone": "تم التراجع",
-  "confirmDelete": (n: number): string => (n === 1 ? 'حذف هذه الجهة؟' : `حذف ${n} جهات؟`),
+  "confirmDelete": (n: number): string => (n === 1 ? 'حذف هذه الجهة؟' : `حذف ${n.toLocaleString("ar")} جهات؟`),
   "confirmDeleteBody": "تُحفظ نسخة احتياطية في الإعدادات ← السجل، فيمكنك التراجع.",
   "groupName": "اسم المجموعة",
   "importTitle": "استيراد",

@@ -184,7 +184,7 @@ export function ExportDialog() {
         </Field>
         <div>
           <div className="mb-1.5 text-xs font-semibold text-ink2">{t("preview")}</div>
-          <pre dir="ltr" className="scroll-thin max-h-48 overflow-auto rounded-xl border border-line bg-sunk p-3 text-xs leading-relaxed text-ink2">
+          <pre dir="ltr" tabIndex={0} className="scroll-thin max-h-48 overflow-auto rounded-xl border border-line bg-sunk p-3 text-xs leading-relaxed text-ink2">
             {previewText(sample, options) || "—"}
           </pre>
         </div>

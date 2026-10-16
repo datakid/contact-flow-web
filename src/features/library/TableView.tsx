@@ -1,8 +1,8 @@
 import { CompactSelection, DataEditor, GridCellKind } from "@glideapps/glide-data-grid";
-import type { EditableGridCell, GridCell, GridColumn, GridSelection, Item } from "@glideapps/glide-data-grid";
+import type { DataEditorRef, EditableGridCell, GridCell, GridColumn, GridSelection, Item } from "@glideapps/glide-data-grid";
 import "@glideapps/glide-data-grid/dist/index.css";
 import { Columns3 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { contactToInput, saveContactInput } from "../../app/actions";
 import { db } from "../../app/db";
 import { useT } from "../../app/i18n";
@@ -60,8 +60,14 @@ export function TableView({ list }: { list: LibraryList }) {
   const theme = useApp((s) => s.theme);
   const lang = useApp((s) => s.lang);
   const selected = useApp((s) => s.selected);
+  const allMatching = useApp((s) => s.allMatching);
+  const excluded = useApp((s) => s.excluded);
+  const version = useApp((s) => s.version);
   const [prefs, setPrefs] = useState<TablePrefs>(loadPrefs);
-  const [details, setDetails] = useState<Map<string, Contact>>(new Map());
+  const gridRef = useRef<DataEditorRef>(null);
+  const detailsRef = useRef(new Map<string, Contact>());
+  const pendingIdsRef = useRef(new Map<string, Item[]>());
+  const flushTimerRef = useRef<number | null>(null);
   const [size, setSize] = useState({ width: 600, height: 400 });
   const [host, setHost] = useState<HTMLDivElement | null>(null);
 
@@ -86,13 +92,41 @@ export function TableView({ list }: { list: LibraryList }) {
   const defaults: Record<ColumnId, number> = { star: 44, name: 200, phones: 180, emails: 200, company: 150, groups: 140, aliases: 140, note: 200, updated: 120 };
   const columns: GridColumn[] = visible.map((id) => ({ id, title: titles[id], width: prefs.widths[id] ?? defaults[id] }));
 
-  const need = useCallback(
-    async (row: ContactRow): Promise<void> => {
-      if (details.has(row.id)) return;
-      const contact = await db.getContact(row.id);
-      if (contact) setDetails((m) => new Map(m).set(row.id, contact));
+  useEffect(() => {
+    detailsRef.current.clear();
+    pendingIdsRef.current.clear();
+  }, [version]);
+
+  useEffect(
+    () => () => {
+      if (flushTimerRef.current !== null) window.clearTimeout(flushTimerRef.current);
     },
-    [details]
+    []
+  );
+
+  const flushDetails = useCallback(async (): Promise<void> => {
+    flushTimerRef.current = null;
+    const wanted = new Map(pendingIdsRef.current);
+    pendingIdsRef.current.clear();
+    if (wanted.size === 0) return;
+    const contacts = await db.getContacts([...wanted.keys()]);
+    const cells: Array<{ cell: Item }> = [];
+    for (const contact of contacts) {
+      detailsRef.current.set(contact.id, contact);
+      for (const cell of wanted.get(contact.id) ?? []) cells.push({ cell });
+    }
+    gridRef.current?.updateCells(cells);
+  }, []);
+
+  const need = useCallback(
+    (row: ContactRow, cell: Item): void => {
+      if (detailsRef.current.has(row.id)) return;
+      const cells = pendingIdsRef.current.get(row.id) ?? [];
+      cells.push(cell);
+      pendingIdsRef.current.set(row.id, cells);
+      if (flushTimerRef.current === null) flushTimerRef.current = window.setTimeout(() => void flushDetails(), 30);
+    },
+    [flushDetails]
   );
 
   const getCell = useCallback(
@@ -101,8 +135,8 @@ export function TableView({ list }: { list: LibraryList }) {
       const row = list.getRow(rowIndex);
       const id = visible[col];
       if (!row || !id) return { kind: GridCellKind.Loading, allowOverlay: false };
-      const full = details.get(row.id);
-      if (!full && id !== "star" && id !== "name" && id !== "company" && id !== "updated") void need(row);
+      const full = detailsRef.current.get(row.id);
+      if (!full && id !== "star" && id !== "name" && id !== "company" && id !== "updated") need(row, [col, rowIndex]);
       const text = (data: string, readonly = false): GridCell => ({ kind: GridCellKind.Text, data, displayData: data, allowOverlay: !readonly, readonly });
       switch (id) {
         case "star": return { kind: GridCellKind.Boolean, data: row.starred, allowOverlay: false };
@@ -116,7 +150,7 @@ export function TableView({ list }: { list: LibraryList }) {
         case "note": return text(full ? full.note : "");
       }
     },
-    [list, visible, details, need, lang]
+    [list, visible, need, lang]
   );
 
   const onCellEdited = useCallback(
@@ -124,7 +158,7 @@ export function TableView({ list }: { list: LibraryList }) {
       const row = list.getRow(rowIndex);
       const id = visible[col];
       if (!row || !id) return;
-      const base = details.get(row.id) ?? (await db.getContact(row.id));
+      const base = detailsRef.current.get(row.id) ?? (await db.getContact(row.id));
       if (!base) return;
       const input = contactToInput(base);
       const splitList = (s: string): string[] => s.split(/[;؛]/).map((x) => x.trim()).filter(Boolean);
@@ -139,30 +173,58 @@ export function TableView({ list }: { list: LibraryList }) {
         else if (id === "emails") input.emails = splitList(data).map((v, i) => ({ value: v, label: base.emails[i]?.label ?? "work" }));
       } else return;
       const saved = await saveContactInput(input);
-      if (saved) setDetails((m) => new Map(m).set(saved.id, saved));
+      if (saved) {
+        detailsRef.current.set(saved.id, saved);
+        gridRef.current?.updateCells([{ cell: [col, rowIndex] }]);
+      }
     },
-    [list, visible, details]
+    [list, visible]
   );
 
   const gridSelection = useMemo<GridSelection>(() => {
     let rows = CompactSelection.empty();
+    if (allMatching) {
+      if (list.total > 0) rows = CompactSelection.fromSingleSelection([0, list.total]);
+      for (const id of excluded) {
+        const index = list.indexOfId(id);
+        if (index >= 0) rows = rows.remove(index);
+      }
+      return { columns: CompactSelection.empty(), rows };
+    }
     if (selected.size > 1000) return { columns: CompactSelection.empty(), rows };
     for (const id of selected) {
       const index = list.indexOfId(id);
       if (index >= 0) rows = rows.add(index);
     }
     return { columns: CompactSelection.empty(), rows };
-  }, [selected, list, list.generation]);
+  }, [selected, allMatching, excluded, list, list.generation]);
 
   const onGridSelectionChange = useCallback(
     (sel: GridSelection) => {
-      const ids = new Set<string>();
-      for (const index of sel.rows) {
-        const row = list.getRow(index);
-        if (row) ids.add(row.id);
-      }
       const state = useApp.getState();
-      if (ids.size !== state.selected.size || [...ids].some((id) => !state.selected.has(id))) state.setSelected(ids);
+      if (list.total > 0 && sel.rows.length === list.total) {
+        if (!state.allMatching || state.excluded.size > 0) state.selectAllMatching();
+      } else if (state.allMatching) {
+        if (sel.rows.length === 0) state.clearSelection();
+        else {
+          const next = new Set(state.excluded);
+          for (let i = 0; i < list.total; i++) {
+            const row = list.getRow(i);
+            if (!row) continue;
+            if (sel.rows.hasIndex(i)) next.delete(row.id);
+            else next.add(row.id);
+          }
+          if (next.size >= list.total) state.clearSelection();
+          else if (next.size !== state.excluded.size || [...next].some((id) => !state.excluded.has(id))) useApp.setState({ excluded: next });
+        }
+      } else {
+        const ids = new Set<string>();
+        for (const index of sel.rows) {
+          const row = list.getRow(index);
+          if (row) ids.add(row.id);
+        }
+        if (ids.size !== state.selected.size || [...ids].some((id) => !state.selected.has(id))) state.setSelected(ids);
+      }
       const current = sel.current?.cell[1];
       if (current !== undefined) {
         const row = list.getRow(current);
@@ -191,7 +253,7 @@ export function TableView({ list }: { list: LibraryList }) {
         <span className="text-xs text-muted">{list.total.toLocaleString()}</span>
         <Popover>
           <PopoverTrigger asChild>
-            <IconButton label="Columns">
+            <IconButton label={t("columns")}>
               <Columns3 size={16} />
             </IconButton>
           </PopoverTrigger>
@@ -209,6 +271,7 @@ export function TableView({ list }: { list: LibraryList }) {
       </div>
       <div ref={setHost} className="min-h-0 flex-1" key={theme}>
         <DataEditor
+          ref={gridRef}
           columns={columns}
           rows={list.total}
           width={size.width}

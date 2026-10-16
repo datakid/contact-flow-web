@@ -97,7 +97,7 @@ export function ImportWizard() {
     <>
       <Modal open={open} onOpenChange={(o) => !o && close()} title={w.title} fullScreen>
         <div className="flex h-full flex-col">
-          <ol className="flex items-center justify-center gap-2 border-b border-line bg-card px-4 py-3" aria-label="Steps">
+          <ol className="flex items-center justify-center gap-2 border-b border-line bg-card px-4 py-3" aria-label={w.title}>
             {w.steps.map((label, i) => {
               const n = i + 1;
               const active = n === step;

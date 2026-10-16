@@ -61,9 +61,9 @@ export function SettingsDialog() {
 
   const loadSample = async (): Promise<void> => {
     const state = useApp.getState();
-    const n = await db.loadSample();
+    const sample = await db.loadSample();
     await state.refresh();
-    state.toast(t("imported", n), "last");
+    state.toast(t("imported", sample.count), sample.historyId);
   };
 
   const clearAll = async (): Promise<void> => {
@@ -94,6 +94,11 @@ export function SettingsDialog() {
         <Row label={t("loadSample")}>
           <Button size="sm" onClick={() => void loadSample()}>
             {t("loadSample")}
+          </Button>
+        </Row>
+        <Row label={t("runSelfTest")}>
+          <Button size="sm" onClick={() => useApp.getState().openDialog("selftest")}>
+            {t("runSelfTest")}
           </Button>
         </Row>
         <Row label={t("clearLibrary")} hint={confirmClear ? t("clearConfirm") : undefined}>

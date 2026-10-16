@@ -1,11 +1,11 @@
 import * as Toast from "@radix-ui/react-toast";
 import { AlertTriangle, X } from "lucide-react";
-import { useEffect, useState } from "react";
-import { deleteSelection, undoLast } from "../../app/actions";
-import { db } from "../../app/db";
+import { useState } from "react";
+import { deleteSelection, undoEntry } from "../../app/actions";
 import { formatNumber, useT } from "../../app/i18n";
 import { useApp } from "../../app/store";
-import { Button, Modal, cx } from "../../ui/primitives";
+import { useSelectionCount } from "../../app/useSelectionCount";
+import { Button, Modal, Spinner, cx } from "../../ui/primitives";
 
 export function Toasts() {
   const t = useT();
@@ -19,7 +19,7 @@ export function Toasts() {
           <Toast.Description className="min-w-0 flex-1 truncate">{item.message}</Toast.Description>
           {item.undoId ? (
             <Toast.Action altText={t("undo")} asChild>
-              <button type="button" onClick={() => { void undoLast(); dismiss(item.id); }} className="rounded-lg px-2 py-1 font-bold text-accent hover:bg-accent-soft">
+              <button type="button" onClick={() => { void undoEntry(item.undoId ?? []); dismiss(item.id); }} className="rounded-lg px-2 py-1 font-bold text-accent hover:bg-accent-soft">
                 {t("undo")}
               </button>
             </Toast.Action>
@@ -43,7 +43,7 @@ export function PersistBanner() {
     <div role="alert" className="flex items-center gap-3 bg-[#f6d860] px-4 py-2 text-sm font-semibold text-[#3d3200]">
       <AlertTriangle size={16} />
       <span className="flex-1">{t("persistBanner")}</span>
-      <Button size="sm" variant="outline" className="border-[#3d3200]/30 bg-transparent text-[#3d3200] hover:bg-black/10" onClick={() => openDialog("export", { kind: "filter", filter: { kind: "all" }, search: "" })}>
+      <Button size="sm" variant="outline" className="border-[#3d3200]/30 bg-transparent text-[#3d3200] hover:bg-black/10" onClick={() => openDialog("export", { kind: "filter", filter: { kind: "all" }, search: "", exclude: [] })}>
         {t("export")}
       </Button>
     </div>
@@ -56,18 +56,8 @@ export function ConfirmDelete() {
   const open = useApp((s) => s.dialog === "confirmDelete");
   const target = useApp((s) => s.confirmTarget);
   const close = useApp((s) => s.closeDialog);
-  const [count, setCount] = useState<number | null>(null);
+  const count = useSelectionCount(open ? target : null);
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (!open || !target) return;
-    if (target.kind === "ids") {
-      setCount(target.ids.length);
-      return;
-    }
-    setCount(null);
-    void db.list({ filter: target.filter, sort: "nameAsc", search: target.search, offset: 0, limit: 1, requestId: Date.now() }).then((r) => setCount(r.total));
-  }, [open, target]);
 
   return (
     <Modal
@@ -82,7 +72,7 @@ export function ConfirmDelete() {
           </Button>
           <Button
             variant="danger"
-            disabled={busy || !target || count === 0}
+            disabled={busy || !target || count === null || count === 0}
             onClick={() => {
               if (!target) return;
               setBusy(true);
@@ -92,7 +82,7 @@ export function ConfirmDelete() {
               });
             }}
           >
-            {t("delete")} {count === null ? "" : formatNumber(lang, count)}
+            {t("delete")} {count === null ? <Spinner size={14} /> : formatNumber(lang, count)}
           </Button>
         </>
       }

@@ -33,7 +33,7 @@ async function importBlob(blob: Blob, name: string, sheet?: string): Promise<{ l
   return { lib, rows };
 }
 
-const names = (lib: ImportStaging): string[] => lib.listPlain({ filter: { kind: "all" }, sort: "nameAsc", search: "", offset: 0, limit: 50, requestId: 1 }).rows.map((r) => r.name);
+const names = (lib: ImportStaging): string[] => lib.listPlain({ channel: "aux", filter: { kind: "all" }, sort: "nameAsc", search: "", offset: 0, limit: 50, requestId: 1 }).rows.map((r) => r.name);
 
 describe("full import pipeline", () => {
   it("imports csv, vcard and xlsx templates identically", async () => {
@@ -44,7 +44,7 @@ describe("full import pipeline", () => {
       expect(names(r.lib)).toEqual(expect.arrayContaining(["Sarah Johnson", "أحمد محمود", "王小明"]));
       expect(r.lib.counts().all).toBe(3);
     }
-    const sarah = csv.lib.listPlain({ filter: { kind: "all" }, sort: "nameAsc", search: "sarah", offset: 0, limit: 5, requestId: 2 }).rows[0];
+    const sarah = csv.lib.listPlain({ channel: "aux", filter: { kind: "all" }, sort: "nameAsc", search: "sarah", offset: 0, limit: 5, requestId: 2 }).rows[0];
     const full = csv.lib.getContact(sarah?.id ?? "");
     expect(full?.phones).toHaveLength(2);
     expect(full?.phones[0]?.value).toBe("+1 415 555 0123");

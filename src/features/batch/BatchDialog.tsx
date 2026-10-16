@@ -125,10 +125,10 @@ export function BatchDialog() {
     if (!op || !target) return;
     const state = useApp.getState();
     setProgress({ done: 0, total: preview?.total ?? 0 });
-    const changed = await db.batchApply(target, op.key, params, translate(lang, `op_${op.key}` as keyof Messages) as string, Comlink.proxy((done: number, total: number) => setProgress({ done, total })));
+    const outcome = await db.batchApply(target, op.key, params, translate(lang, `op_${op.key}` as keyof Messages) as string, Comlink.proxy((done: number, total: number) => setProgress({ done, total })));
     setProgress(null);
     await state.refresh();
-    state.toast(translate(lang, "nChanged", changed), "last");
+    state.toast(translate(lang, "nChanged", outcome.count), outcome.historyId);
     close();
   };
 

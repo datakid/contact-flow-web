@@ -1,5 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { Suspense, lazy, useEffect, useRef } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { CreateDialog } from "../features/contact/CreateDialog";
 import { DetailPane } from "../features/contact/DetailPane";
 import { MiddlePane } from "../features/library/MiddlePane";
@@ -20,20 +20,21 @@ const DuplicatesDialog = lazy(() => import("../features/duplicates/DuplicatesDia
 const QueueDialog = lazy(() => import("../features/queue/QueueDialog").then((m) => ({ default: m.QueueDialog })));
 const HistoryDialog = lazy(() => import("../features/history/HistoryDialog").then((m) => ({ default: m.HistoryDialog })));
 const SettingsDialog = lazy(() => import("../features/settings/SettingsDialog").then((m) => ({ default: m.SettingsDialog })));
+const SelfTestDialog = lazy(() => import("../features/settings/SelfTestDialog").then((m) => ({ default: m.SelfTestDialog })));
 const ShortcutsDialog = lazy(() => import("../features/settings/ShortcutsDialog").then((m) => ({ default: m.ShortcutsDialog })));
 
 function ResizeHandle({ onDrag, label }: { onDrag: (delta: number) => void; label: string }) {
-  const active = useRef(false);
+  const [active, setActive] = useState(false);
   return (
     <div
       role="separator"
       aria-orientation="vertical"
       aria-label={label}
       className="resize-handle"
-      data-active={active.current}
+      data-active={active}
       onPointerDown={(e) => {
         e.currentTarget.setPointerCapture(e.pointerId);
-        active.current = true;
+        setActive(true);
         let last = e.clientX;
         const rtl = document.documentElement.dir === "rtl";
         const move = (ev: PointerEvent): void => {
@@ -42,7 +43,7 @@ function ResizeHandle({ onDrag, label }: { onDrag: (delta: number) => void; labe
           onDrag(delta);
         };
         const up = (): void => {
-          active.current = false;
+          setActive(false);
           window.removeEventListener("pointermove", move);
           window.removeEventListener("pointerup", up);
         };
@@ -66,6 +67,7 @@ function Dialogs() {
         {dialog === "history" ? <HistoryDialog /> : null}
         {dialog === "settings" ? <SettingsDialog /> : null}
         {dialog === "shortcuts" ? <ShortcutsDialog /> : null}
+        {dialog === "selftest" ? <SelfTestDialog /> : null}
       </Suspense>
       <CreateDialog />
       <ConfirmDelete />
@@ -132,6 +134,9 @@ function CompactLayout() {
 export function App() {
   const t = useT();
   const ready = useApp((s) => s.ready);
+  useEffect(() => {
+    if (ready && new URLSearchParams(window.location.search).get("selftest") === "1") useApp.getState().openDialog("selftest");
+  }, [ready]);
   const error = useApp((s) => s.initError);
   const lang = useApp((s) => s.lang);
   const compact = useCompact();
@@ -149,15 +154,6 @@ export function App() {
     root.dataset.theme = resolved;
     document.querySelector('meta[name="theme-color"]')?.setAttribute("content", resolved === "dark" ? "#141210" : "#F6F1E8");
   }, [lang, resolved]);
-
-  useEffect(() => {
-    const query = window.matchMedia("(prefers-color-scheme: dark)");
-    const onChange = (): void => {
-      if (useApp.getState().theme === "system") useApp.setState({ theme: "system" });
-    };
-    query.addEventListener("change", onChange);
-    return () => query.removeEventListener("change", onChange);
-  }, []);
 
   if (error) {
     return (

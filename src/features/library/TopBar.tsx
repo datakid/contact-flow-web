@@ -1,13 +1,25 @@
 import { Download, Menu, Moon, Plus, Search, Sun, Upload, X } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useCompact } from "../../app/hooks";
 import { useT } from "../../app/i18n";
 import { useApp } from "../../app/store";
 import { Button, IconButton } from "../../ui/primitives";
 
+const DARK_QUERY = "(prefers-color-scheme: dark)";
+
+function subscribeSystemTheme(onChange: () => void): () => void {
+  const query = window.matchMedia(DARK_QUERY);
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+}
+
+function systemPrefersDark(): boolean {
+  return window.matchMedia(DARK_QUERY).matches;
+}
+
 export function useResolvedTheme(): "dark" | "light" {
   const theme = useApp((s) => s.theme);
-  const system = typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const system = useSyncExternalStore(subscribeSystemTheme, systemPrefersDark, () => false);
   return theme === "system" ? (system ? "dark" : "light") : theme;
 }
 
@@ -72,7 +84,7 @@ export function TopBar() {
             <Button variant="primary" onClick={() => openDialog("import")}>
               <Upload size={15} /> {t("import")}
             </Button>
-            <Button variant="outline" onClick={() => openDialog("export", { kind: "filter", filter: useApp.getState().filter, search: useApp.getState().search })}>
+            <Button variant="outline" onClick={() => openDialog("export", { kind: "filter", filter: useApp.getState().filter, search: useApp.getState().search, exclude: [] })}>
               <Download size={15} /> {t("export")}
             </Button>
           </>
