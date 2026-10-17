@@ -20,7 +20,7 @@ export function cx(...parts: Array<string | false | null | undefined>): string {
 
 type ButtonVariant = "primary" | "ghost" | "outline" | "danger" | "soft";
 
-const BUTTON_BASE = "inline-flex items-center justify-center gap-2 rounded-xl font-semibold transition-colors disabled:opacity-40 disabled:pointer-events-none select-none whitespace-nowrap";
+const BUTTON_BASE = "inline-flex items-center justify-center gap-2 rounded-xl font-semibold transition-[color,background-color,border-color,filter,transform] duration-150 active:scale-[0.97] disabled:opacity-40 disabled:pointer-events-none select-none whitespace-nowrap";
 const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
   primary: "bg-accent text-white hover:brightness-105 active:brightness-95",
   ghost: "text-ink2 hover:bg-sunk",
@@ -63,7 +63,7 @@ export const IconButton = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTM
   return (
     <TooltipPrimitive.Root delayDuration={400}>
       <TooltipPrimitive.Trigger asChild>
-        <button ref={ref} type={type} aria-label={label} className={cx("inline-grid size-8 place-items-center rounded-lg text-muted transition-colors hover:bg-sunk hover:text-ink disabled:opacity-40", active && "text-accent", className)} {...rest} />
+        <button ref={ref} type={type} aria-label={label} className={cx("inline-grid size-8 place-items-center rounded-lg text-muted transition-[color,background-color,transform] duration-150 hover:bg-sunk hover:text-ink active:scale-90 disabled:opacity-40", active && "text-accent", className)} {...rest} />
       </TooltipPrimitive.Trigger>
       <TooltipPrimitive.Portal>
         <TooltipPrimitive.Content sideOffset={6} className="z-[100] rounded-md bg-ink px-2 py-1 text-xs font-medium text-paper anim-fade">

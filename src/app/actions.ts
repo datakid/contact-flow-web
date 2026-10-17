@@ -110,24 +110,36 @@ export function vcardFor(contact: Contact): string {
   );
 }
 
-export async function shareVCard(contact: Contact): Promise<void> {
-  const state = useApp.getState();
-  const text = `${vcardFor(contact)}\r\n`;
-  const file = new File([text], `${contact.name || "contact"}.vcf`, { type: "text/vcard" });
-  try {
-    if (navigator.canShare?.({ files: [file] })) {
-      await navigator.share({ files: [file], title: contact.name });
-      return;
-    }
-  } catch {
-    return;
-  }
+function safeFileName(name: string): string {
+  const cleaned = name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_").trim().slice(0, 80);
+  return cleaned || "contact";
+}
+
+function downloadFile(file: File): void {
   const url = URL.createObjectURL(file);
   const link = document.createElement("a");
   link.href = url;
   link.download = file.name;
+  document.body.appendChild(link);
   link.click();
-  window.setTimeout(() => URL.revokeObjectURL(url), 2000);
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+export async function shareVCard(contact: Contact): Promise<void> {
+  const state = useApp.getState();
+  const text = `${vcardFor(contact)}\r\n`;
+  const file = new File([text], `${safeFileName(contact.name)}.vcf`, { type: "text/vcard" });
+  const touch = window.matchMedia("(pointer: coarse)").matches;
+  if (touch && navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: contact.name });
+      return;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+    }
+  }
+  downloadFile(file);
   state.toast(translate(state.lang, "exported"));
 }
 

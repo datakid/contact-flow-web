@@ -10,6 +10,10 @@
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
+:root {
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 @theme {
   --color-paper: var(--paper);
   --color-card: var(--card);
@@ -156,7 +160,7 @@ mark.hl {
 @keyframes pop-in {
   from {
     opacity: 0;
-    transform: translateY(6px) scale(0.98);
+    transform: translateY(8px) scale(0.97);
   }
   to {
     opacity: 1;
@@ -173,12 +177,97 @@ mark.hl {
   }
 }
 
+@keyframes drawer-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes drawer-in-rtl {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes detail-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes toast-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
 .anim-fade {
-  animation: fade-in 140ms ease-out;
+  animation: fade-in 160ms var(--ease);
 }
 
 .anim-pop {
-  animation: pop-in 160ms ease-out;
+  animation: pop-in 220ms var(--ease);
+}
+
+.anim-sheet {
+  animation: slide-up 260ms var(--ease);
+}
+
+.anim-drawer {
+  animation: drawer-in 260ms var(--ease);
+}
+
+[dir="rtl"] .anim-drawer {
+  animation-name: drawer-in-rtl;
+}
+
+.anim-detail {
+  animation: detail-in 200ms var(--ease);
+}
+
+.toast[data-state="open"] {
+  animation: toast-in 240ms var(--ease);
+}
+
+.toast[data-state="closed"],
+.toast[data-swipe="end"] {
+  animation: toast-out 160ms ease-in forwards;
+}
+
+.toast[data-swipe="move"] {
+  transform: translateY(var(--radix-toast-swipe-move-y));
+}
+
+.toast[data-swipe="cancel"] {
+  transform: none;
+  transition: transform 200ms var(--ease);
 }
 
 @media (prefers-reduced-motion: reduce) {

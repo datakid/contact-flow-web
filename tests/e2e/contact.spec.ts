@@ -65,3 +65,21 @@ test("one inline edit makes exactly one history entry", async ({ page }) => {
   await page.waitForTimeout(1000);
   expect(await historyEntries(page)).toBe(before + 1);
 });
+
+test("share as vCard downloads a valid vcf from the detail pane and the row menu", async ({ page }) => {
+  await openApp(page);
+  await loadSample(page);
+  await page.getByRole("row", { name: /Amelia Hart/ }).click();
+  const detail = page.getByRole("complementary", { name: "Amelia Hart" });
+  const [fromDetail] = await Promise.all([page.waitForEvent("download"), detail.getByRole("button", { name: "Share as vCard" }).click()]);
+  expect(fromDetail.suggestedFilename()).toBe("Amelia Hart.vcf");
+  const path = await fromDetail.path();
+  const text = (await import("node:fs")).readFileSync(path, "utf8");
+  expect(text).toContain("BEGIN:VCARD");
+  expect(text).toContain("Amelia Hart");
+  await expect(page.getByText("File saved", { exact: true }).first()).toBeVisible();
+
+  await page.getByRole("row", { name: /Ava Thompson/ }).click({ button: "right" });
+  const [fromMenu] = await Promise.all([page.waitForEvent("download"), page.getByRole("menuitem", { name: "Share as vCard" }).click()]);
+  expect(fromMenu.suggestedFilename()).toBe("Ava Thompson.vcf");
+});

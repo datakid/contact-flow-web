@@ -4,6 +4,7 @@ import { useState } from "react";
 import { deleteSelection, undoEntry } from "../../app/actions";
 import { formatNumber, useT } from "../../app/i18n";
 import { useApp } from "../../app/store";
+import type { ToastItem } from "../../app/store";
 import { useSelectionCount } from "../../app/useSelectionCount";
 import { Button, Modal, Spinner, cx } from "../../ui/primitives";
 
@@ -14,7 +15,18 @@ export function Toasts() {
   return (
     <Toast.Provider swipeDirection="down" duration={4200}>
       {toasts.map((item) => (
-        <Toast.Root key={item.id} open duration={item.undoId ? 7000 : 4200} onOpenChange={(open) => !open && dismiss(item.id)} className={cx("flex items-center gap-3 rounded-xl border px-4 py-2.5 text-sm shadow-[var(--shadow)] anim-pop", item.tone === "error" ? "border-danger bg-card text-danger" : "border-line bg-card text-ink")}>
+        <ToastCard key={item.id} item={item} dismiss={dismiss} />
+      ))}
+      <Toast.Viewport className="fixed inset-x-0 bottom-4 z-[200] mx-auto flex w-[min(92vw,420px)] flex-col gap-2 outline-none" />
+    </Toast.Provider>
+  );
+}
+
+function ToastCard({ item, dismiss }: { item: ToastItem; dismiss: (id: number) => void }) {
+  const t = useT();
+  const [open, setOpen] = useState(true);
+  return (
+        <Toast.Root open={open} duration={item.undoId ? 7000 : 4200} onOpenChange={(next) => { setOpen(next); if (!next) window.setTimeout(() => dismiss(item.id), 180); }} className={cx("toast flex items-center gap-3 rounded-xl border px-4 py-2.5 text-sm shadow-[var(--shadow)]", item.tone === "error" ? "border-danger bg-card text-danger" : "border-line bg-card text-ink")}>
           {item.tone === "error" ? <AlertTriangle size={16} /> : null}
           <Toast.Description className="min-w-0 flex-1 truncate">{item.message}</Toast.Description>
           {item.undoId ? (
@@ -28,9 +40,6 @@ export function Toasts() {
             <X size={14} />
           </Toast.Close>
         </Toast.Root>
-      ))}
-      <Toast.Viewport className="fixed inset-x-0 bottom-4 z-[200] mx-auto flex w-[min(92vw,420px)] flex-col gap-2 outline-none" />
-    </Toast.Provider>
   );
 }
 

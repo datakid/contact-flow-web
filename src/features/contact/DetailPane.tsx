@@ -236,7 +236,7 @@ export function DetailPane({ onBack }: { onBack?: () => void }) {
   const linkFor = (channel: MessageChannel): string | null => (reachable ? messageUrl(channel, reachable, country) : null);
   const unreachableReason = t(contact.phones.length > 0 ? "needsCountryCode" : "noNumberToMessage");
   return (
-    <aside className="flex h-full min-h-0 flex-col" aria-label={contact.name}>
+    <aside key={contact.id} className="anim-detail flex h-full min-h-0 flex-col" aria-label={contact.name}>
       <div className="border-b border-line px-5 pb-4 pt-5">
         {onBack ? (
           <Button size="sm" variant="ghost" onClick={onBack} className="-ms-2 mb-2">

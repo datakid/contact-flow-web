@@ -113,7 +113,7 @@ function CompactLayout() {
       <Dialog.Root open={drawer} onOpenChange={setDrawer}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-40 bg-[var(--scrim)] anim-fade" />
-          <Dialog.Content aria-describedby={undefined} className="fixed inset-y-0 start-0 z-50 w-[min(84vw,300px)] border-e border-line bg-card shadow-[var(--shadow)] anim-fade">
+          <Dialog.Content aria-describedby={undefined} className="fixed inset-y-0 start-0 z-50 w-[min(84vw,300px)] border-e border-line bg-card shadow-[var(--shadow)] anim-drawer">
             <Dialog.Title className="sr-only">{t("libraryHeading")}</Dialog.Title>
             <Sidebar collapsed={false} drawer />
           </Dialog.Content>
@@ -121,7 +121,7 @@ function CompactLayout() {
       </Dialog.Root>
       <Dialog.Root open={open && focusedId !== null} onOpenChange={(o) => !o && setMobileDetail(false)}>
         <Dialog.Portal>
-          <Dialog.Content aria-describedby={undefined} className="fixed inset-0 z-40 bg-card" style={{ animation: "slide-up 200ms ease-out" }}>
+          <Dialog.Content aria-describedby={undefined} className="anim-sheet fixed inset-0 z-40 bg-card">
             <Dialog.Title className="sr-only">{t("emptyDetailTitle")}</Dialog.Title>
             <DetailPane onBack={() => setMobileDetail(false)} />
           </Dialog.Content>

@@ -200,7 +200,7 @@ const ContactRowView = memo(function ContactRowView({ row, index, hits, focused,
           }
           onActivate(row, index, e);
         }}
-        className={cx("group relative flex h-full cursor-default items-center gap-3 border-b border-line/60 px-3", focused ? "bg-accent-soft" : selected ? "bg-sunk" : "hover:bg-sunk/70")}
+        className={cx("group relative flex h-full cursor-default items-center gap-3 border-b border-line/60 px-3 transition-colors duration-150", focused ? "bg-accent-soft" : selected ? "bg-sunk" : "hover:bg-sunk/70")}
       >
         <div role="gridcell" className="relative grid size-10 shrink-0 place-items-center">
           <div className={cx("transition-opacity", anySelected || selected ? "opacity-0" : "group-hover:opacity-0")}>

@@ -141,7 +141,7 @@ export function Palette() {
               return (
                 <div key={c.key}>
                   {header ? <div className="px-3 pb-1 pt-2 text-[11px] font-bold uppercase tracking-wider text-muted rtl:tracking-normal">{header}</div> : null}
-                  <button type="button" role="option" id={`cmd-${c.key}`} tabIndex={-1} aria-selected={index === activeIndex} onMouseMove={() => setActiveKey(c.key)} onClick={() => c.run()} className={cx("flex w-full items-center gap-3 rounded-xl px-3 py-2 text-start text-sm", index === activeIndex && "bg-accent-soft text-accent")}>
+                  <button type="button" role="option" id={`cmd-${c.key}`} tabIndex={-1} aria-selected={index === activeIndex} onMouseMove={() => setActiveKey(c.key)} onClick={() => c.run()} className={cx("flex w-full items-center gap-3 rounded-xl px-3 py-2 text-start text-sm transition-colors duration-100", index === activeIndex && "bg-accent-soft text-accent")}>
                     {person ? <Avatar name={person.name} seed={person.id} size={26} /> : null}
                     <span className="min-w-0 flex-1 truncate">{c.label}</span>
                     {person ? <span className="truncate text-xs text-muted">{person.primaryPhone}</span> : null}

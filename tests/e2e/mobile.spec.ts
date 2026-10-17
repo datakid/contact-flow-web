@@ -48,3 +48,28 @@ test("the back chevron is mirrored in Arabic", async ({ page }) => {
   });
   expect(["missing", "none"]).not.toContain(rotate);
 });
+
+test("share as vCard falls back to a download when the share sheet fails", async ({ page }) => {
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "canShare", { configurable: true, value: () => true });
+    Object.defineProperty(navigator, "share", { configurable: true, value: () => Promise.reject(new DOMException("blocked", "NotAllowedError")) });
+  });
+  await page.getByRole("row", { name: /Amelia Hart/ }).tap();
+  const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Share as vCard" }).click()]);
+  expect(download.suggestedFilename()).toBe("Amelia Hart.vcf");
+});
+
+test("share as vCard does nothing extra when the user cancels the share sheet", async ({ page }) => {
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "canShare", { configurable: true, value: () => true });
+    Object.defineProperty(navigator, "share", { configurable: true, value: () => Promise.reject(new DOMException("cancelled", "AbortError")) });
+  });
+  await page.getByRole("row", { name: /Amelia Hart/ }).tap();
+  let downloaded = false;
+  page.on("download", () => {
+    downloaded = true;
+  });
+  await page.getByRole("button", { name: "Share as vCard" }).click();
+  await page.waitForTimeout(800);
+  expect(downloaded).toBe(false);
+});
