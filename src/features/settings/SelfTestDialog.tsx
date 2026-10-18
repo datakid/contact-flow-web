@@ -24,6 +24,7 @@ function StatusIcon({ status }: { status: SelfTestResult["status"] }) {
 export function SelfTestDialog() {
   const t = useT();
   const closeDialog = useApp((s) => s.closeDialog);
+  const open = useApp((s) => s.dialog === "selftest");
   const [results, setResults] = useState<SelfTestResult[]>([]);
   const [running, setRunning] = useState(false);
   const [stopped, setStopped] = useState(false);
@@ -76,6 +77,15 @@ export function SelfTestDialog() {
     return stopWorker;
   }, [start, stopWorker]);
 
+  useEffect(() => {
+    if (open) {
+      if (!running) {
+        setResults([]);
+        setStopped(false);
+      }
+    } else if (running) cancel();
+  }, [open]);
+
   const counts = useMemo(() => ({ pass: results.filter((r) => r.status === "pass").length, warn: results.filter((r) => r.status === "warn").length, fail: results.filter((r) => r.status === "fail").length }), [results]);
   const finished = !running && results.length > 0;
 
@@ -87,7 +97,7 @@ export function SelfTestDialog() {
 
   return (
     <Modal
-      open
+      open={open}
       onOpenChange={(o) => !o && closeDialog()}
       title={t("selfTestTitle")}
       description={t("selfTestIntro")}

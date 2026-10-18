@@ -13,6 +13,7 @@ import { OPS, defaultParams } from "../../core/ops/ops";
 import type { OpDef, OpSection, ParamDef, Params } from "../../core/ops/ops";
 import type { BatchPreview } from "../../core/db/service";
 import { Button, Checkbox, Modal, ProgressBar, Segmented, cx, inputClass } from "../../ui/primitives";
+import { useResolvedTheme } from "../library/TopBar";
 
 const SECTIONS: Array<{ key: OpSection; label: keyof Messages }> = [
   { key: "names", label: "sec_names" },
@@ -21,7 +22,8 @@ const SECTIONS: Array<{ key: OpSection; label: keyof Messages }> = [
   { key: "details", label: "sec_details" }
 ];
 
-function theme(): Record<string, string | number> {
+function theme(resolved: "dark" | "light"): Record<string, string | number> {
+  if (document.documentElement.dataset.theme !== resolved) document.documentElement.dataset.theme = resolved;
   const css = getComputedStyle(document.documentElement);
   const v = (n: string): string => css.getPropertyValue(n).trim();
   return { bgCell: v("--card"), bgHeader: v("--sunk"), textDark: v("--ink"), textHeader: v("--ink-2"), textMedium: v("--muted"), borderColor: v("--line"), accentColor: v("--accent"), fontFamily: "Manrope, 'IBM Plex Sans Arabic', system-ui, sans-serif", baseFontStyle: "13px", headerFontStyle: "600 12px" };
@@ -36,7 +38,7 @@ function ParamField({ def, value, onChange }: { def: ParamDef; value: string | n
     return (
       <div className="space-y-1.5">
         {label ? <div className="text-xs font-semibold text-ink2">{label}</div> : null}
-        <Segmented value={String(value ?? def.default ?? "")} onChange={onChange} options={(def.options ?? []).map(([v, l]) => ({ value: v, label: tr(l) }))} />
+        <Segmented label={label || def.key} value={String(value ?? def.default ?? "")} onChange={onChange} options={(def.options ?? []).map(([v, l]) => ({ value: v, label: tr(l) }))} />
       </div>
     );
   }
@@ -88,6 +90,8 @@ export function BatchDialog() {
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 500, height: 300 });
   const debounced = useDebounced(params, 200);
+  const resolved = useResolvedTheme();
+  const gridTheme = useMemo(() => theme(resolved), [resolved]);
 
   useEffect(() => {
     if (open) {
@@ -125,16 +129,22 @@ export function BatchDialog() {
     if (!op || !target) return;
     const state = useApp.getState();
     setProgress({ done: 0, total: preview?.total ?? 0 });
-    const outcome = await db.batchApply(target, op.key, params, translate(lang, `op_${op.key}` as keyof Messages) as string, Comlink.proxy((done: number, total: number) => setProgress({ done, total })));
-    setProgress(null);
-    await state.refresh();
-    state.toast(translate(lang, "nChanged", outcome.count), outcome.historyId);
-    close();
+    try {
+      const outcome = await db.batchApply(target, op.key, params, translate(lang, `op_${op.key}` as keyof Messages) as string, Comlink.proxy((done: number, total: number) => setProgress({ done, total })));
+      setProgress(null);
+      await state.refresh();
+      state.toast(translate(lang, "nChanged", outcome.count), outcome.historyId);
+      close();
+    } catch (error) {
+      setProgress(null);
+      await state.refresh();
+      state.toast(error instanceof Error ? error.message : String(error), null, "error");
+    }
   };
 
   const ready = op ? op.ready(params) : false;
   const samples = preview?.samples ?? [];
-  const columns: GridColumn[] = useMemo(() => [{ id: "before", title: lang === "ar" ? "قبل" : "Before", width: Math.max(180, size.width / 2 - 24) }, { id: "after", title: lang === "ar" ? "بعد" : "After", width: Math.max(180, size.width / 2 - 24) }], [size.width, lang]);
+  const columns: GridColumn[] = useMemo(() => [{ id: "before", title: t("before"), width: Math.max(180, size.width / 2 - 24) }, { id: "after", title: t("after"), width: Math.max(180, size.width / 2 - 24) }], [size.width, t]);
   const cell = ([col, row]: Item): GridCell => {
     const s = samples[row];
     const text = s ? (col === 0 ? s.before : s.after) : "";
@@ -145,6 +155,7 @@ export function BatchDialog() {
     <Modal
       open={open}
       onOpenChange={(o) => !o && !progress && close()}
+      dismissible={progress === null}
       title={t("batchEdit")}
       description={t("batchSub")}
       size="xl"
@@ -184,7 +195,7 @@ export function BatchDialog() {
           ) : null}
           <div ref={setHost} className="min-h-[220px] flex-1 overflow-hidden rounded-2xl border border-line">
             {samples.length > 0 ? (
-              <DataEditor columns={columns} rows={samples.length} width={size.width} height={size.height} getCellContent={cell} rowMarkers="number" smoothScrollY rowHeight={32} headerHeight={32} theme={theme()} gridSelection={{ columns: CompactSelection.empty(), rows: CompactSelection.empty() }} />
+              <DataEditor columns={columns} rows={samples.length} width={size.width} height={size.height} getCellContent={cell} rowMarkers="number" smoothScrollY rowHeight={32} headerHeight={32} theme={gridTheme} gridSelection={{ columns: CompactSelection.empty(), rows: CompactSelection.empty() }} />
             ) : (
               <div className="grid h-full place-items-center text-sm text-muted">{preview ? t("nothingToChange") : "…"}</div>
             )}

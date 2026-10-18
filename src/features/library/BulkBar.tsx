@@ -1,7 +1,9 @@
+import { useEffect, useRef } from "react";
 import { Download, FolderMinus, FolderPlus, GitMerge, MessageSquare, SquarePen, Star, StarOff, Trash2, X } from "lucide-react";
 import { addToGroup, removeFromGroup, setStarred } from "../../app/actions";
+import { usePresence } from "../../app/hooks";
 import { formatNumber, useT } from "../../app/i18n";
-import { useApp } from "../../app/store";
+import { EMPTY_GROUPS, useApp } from "../../app/store";
 import { Button, DropdownMenu, IconButton, Spinner } from "../../ui/primitives";
 import type { MenuEntry } from "../../ui/primitives";
 import { db } from "../../app/db";
@@ -13,33 +15,51 @@ export function BulkBar({ list }: { list: LibraryList }) {
   const lang = useApp((s) => s.lang);
   const selected = useApp((s) => s.selected);
   const allMatching = useApp((s) => s.allMatching);
-  const groups = useApp((s) => s.counts?.groups ?? []);
+  const groups = useApp((s) => s.counts?.groups ?? EMPTY_GROUPS);
   const filter = useApp((s) => s.filter);
   useApp((s) => s.search);
+  const mergingRef = useRef(false);
   const state = useApp.getState();
   const matching = useSelectionCount(allMatching ? state.currentSelection() : null);
   const count = allMatching ? matching : selected.size;
-  if (count === 0) return null;
+  const visible = count !== 0;
+  const presence = usePresence(visible);
+  const lastCount = useRef<number | null>(count);
+  if (visible) lastCount.current = count;
+  const shownCount = visible ? count : lastCount.current;
+  useEffect(() => {
+    useApp.getState().setBulkBarVisible(visible);
+    return () => useApp.getState().setBulkBarVisible(false);
+  }, [visible]);
+  if (!presence.mounted) return null;
   const selection = () => state.currentSelection();
   const groupEntries = (fn: (id: number) => void): MenuEntry[] => groups.map((g) => ({ key: `g${g.id}`, label: g.name, onSelect: () => fn(g.id) }));
   const canSelectAll = !allMatching && list.matchTotal > selected.size;
   const mergeEnabled = !allMatching && selected.size >= 2 && selected.size <= 10;
   const onMerge = async (): Promise<void> => {
-    const ids = [...selected];
-    const contacts = await Promise.all(ids.map((id) => db.getContact(id)));
-    const present = contacts.filter((c): c is NonNullable<typeof c> => c !== null);
-    const keep = [...present].sort((a, b) => b.phones.length + b.emails.length - (a.phones.length + a.emails.length))[0];
-    if (!keep) return;
-    const merged = await db.mergeGroup(keep.id, ids, t("merged", ids.length));
-    state.clearSelection();
-    state.setFocused(keep.id);
-    await state.refresh();
-    state.toast(t("merged", ids.length), merged.historyId);
+    if (mergingRef.current) return;
+    mergingRef.current = true;
+    try {
+      const ids = [...selected];
+      const contacts = await Promise.all(ids.map((id) => db.getContact(id)));
+      const present = contacts.filter((c): c is NonNullable<typeof c> => c !== null);
+      const keep = [...present].sort((a, b) => b.phones.length + b.emails.length - (a.phones.length + a.emails.length))[0];
+      if (!keep) return;
+      const merged = await db.mergeGroup(keep.id, ids, t("merged", ids.length));
+      state.clearSelection();
+      state.setFocused(keep.id);
+      await state.refresh();
+      state.toast(t("merged", ids.length), merged.historyId);
+    } catch (error) {
+      state.toast(error instanceof Error ? error.message : String(error), null, "error");
+    } finally {
+      mergingRef.current = false;
+    }
   };
   return (
     <div className="pointer-events-none absolute inset-x-3 bottom-3 z-20 flex justify-center">
-      <div className="pointer-events-auto flex max-w-full items-center gap-1 overflow-x-auto rounded-2xl border border-line bg-card px-2 py-1.5 shadow-[var(--shadow)] anim-pop scroll-thin">
-        <span className="px-2 text-sm font-bold whitespace-nowrap">{count === null ? <Spinner size={14} /> : t("nSelectedBar", count).replace(/^[\d,.\s]+/, `${formatNumber(lang, count)}`)}</span>
+      <div className="pointer-events-auto flex max-w-full items-center gap-1 overflow-x-auto rounded-2xl border border-line bg-card px-2 py-1.5 shadow-[var(--shadow)] anim-bar scroll-thin" data-state={presence.state}>
+        <span className="px-2 text-sm font-bold whitespace-nowrap">{shownCount === null ? <Spinner size={14} /> : t("nSelectedBar", shownCount).replace(/^[\d,.\s]+/, `${formatNumber(lang, shownCount)}`)}</span>
         {canSelectAll ? (
           <Button size="sm" variant="soft" onClick={() => state.selectAllMatching()}>
             {t("selectAllMatching", list.matchTotal)}

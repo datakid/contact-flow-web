@@ -1,6 +1,6 @@
 import * as Toast from "@radix-ui/react-toast";
 import { AlertTriangle, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { deleteSelection, undoEntry } from "../../app/actions";
 import { formatNumber, useT } from "../../app/i18n";
 import { useApp } from "../../app/store";
@@ -12,12 +12,13 @@ export function Toasts() {
   const t = useT();
   const toasts = useApp((s) => s.toasts);
   const dismiss = useApp((s) => s.dismissToast);
+  const lifted = useApp((s) => s.bulkBarVisible);
   return (
     <Toast.Provider swipeDirection="down" duration={4200}>
       {toasts.map((item) => (
         <ToastCard key={item.id} item={item} dismiss={dismiss} />
       ))}
-      <Toast.Viewport className="fixed inset-x-0 bottom-4 z-[200] mx-auto flex w-[min(92vw,420px)] flex-col gap-2 outline-none" />
+      <Toast.Viewport className={cx("fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+16px)] z-[200] mx-auto flex w-[min(92vw,420px)] flex-col gap-2 outline-none transition-transform duration-200", lifted && "-translate-y-16")} />
     </Toast.Provider>
   );
 }
@@ -25,13 +26,20 @@ export function Toasts() {
 function ToastCard({ item, dismiss }: { item: ToastItem; dismiss: (id: number) => void }) {
   const t = useT();
   const [open, setOpen] = useState(true);
+  useEffect(() => {
+    if (!item.open) {
+      const id = window.setTimeout(() => dismiss(item.id), 180);
+      return () => window.clearTimeout(id);
+    }
+    return undefined;
+  }, [item.open, item.id, dismiss]);
   return (
-        <Toast.Root open={open} duration={item.undoId ? 7000 : 4200} onOpenChange={(next) => { setOpen(next); if (!next) window.setTimeout(() => dismiss(item.id), 180); }} className={cx("toast flex items-center gap-3 rounded-xl border px-4 py-2.5 text-sm shadow-[var(--shadow)]", item.tone === "error" ? "border-danger bg-card text-danger" : "border-line bg-card text-ink")}>
+        <Toast.Root open={open && item.open} duration={item.undoId ? 7000 : 4200} onOpenChange={(next) => { setOpen(next); if (!next) window.setTimeout(() => dismiss(item.id), 180); }} className={cx("toast flex items-center gap-3 rounded-xl border px-4 py-2.5 text-sm shadow-[var(--shadow)]", item.tone === "error" ? "border-danger bg-card text-danger" : "border-line bg-card text-ink")}>
           {item.tone === "error" ? <AlertTriangle size={16} /> : null}
           <Toast.Description className="min-w-0 flex-1 truncate">{item.message}</Toast.Description>
           {item.undoId ? (
             <Toast.Action altText={t("undo")} asChild>
-              <button type="button" onClick={() => { void undoEntry(item.undoId ?? []); dismiss(item.id); }} className="rounded-lg px-2 py-1 font-bold text-accent hover:bg-accent-soft">
+              <button type="button" onClick={() => { void undoEntry(item.undoId ?? []); }} className="rounded-lg px-2 py-1 font-bold text-accent hover:bg-accent-soft">
                 {t("undo")}
               </button>
             </Toast.Action>
@@ -65,8 +73,12 @@ export function ConfirmDelete() {
   const open = useApp((s) => s.dialog === "confirmDelete");
   const target = useApp((s) => s.confirmTarget);
   const close = useApp((s) => s.closeDialog);
-  const count = useSelectionCount(open ? target : null);
+  const liveCount = useSelectionCount(open ? target : null);
+  const lastCount = useRef<number | null>(null);
+  if (open) lastCount.current = liveCount;
+  const count = open ? liveCount : lastCount.current;
   const [busy, setBusy] = useState(false);
+  const deleteRef = useRef<HTMLButtonElement>(null);
 
   return (
     <Modal
@@ -74,12 +86,14 @@ export function ConfirmDelete() {
       onOpenChange={(o) => !o && close()}
       title={count === null ? t("delete") : t("confirmDelete", count)}
       size="sm"
+      initialFocusRef={deleteRef}
       footer={
         <>
           <Button variant="ghost" onClick={close}>
             {t("cancel")}
           </Button>
           <Button
+            ref={deleteRef}
             variant="danger"
             disabled={busy || !target || count === null || count === 0}
             onClick={() => {

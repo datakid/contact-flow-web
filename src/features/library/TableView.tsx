@@ -9,6 +9,7 @@ import { useT } from "../../app/i18n";
 import { useApp } from "../../app/store";
 import type { Contact, ContactRow } from "../../core/types";
 import { Checkbox, IconButton, Popover, PopoverContent, PopoverTrigger } from "../../ui/primitives";
+import { useResolvedTheme } from "./TopBar";
 import type { LibraryList } from "./useLibraryList";
 
 type ColumnId = "star" | "name" | "phones" | "emails" | "company" | "groups" | "aliases" | "note" | "updated";
@@ -32,7 +33,8 @@ function loadPrefs(): TablePrefs {
   return { order: ALL_COLUMNS, hidden: ["aliases", "note"], widths: {} };
 }
 
-function cellTheme(): Record<string, string | number> {
+function cellTheme(resolved: "dark" | "light"): Record<string, string | number> {
+  if (document.documentElement.dataset.theme !== resolved) document.documentElement.dataset.theme = resolved;
   const css = getComputedStyle(document.documentElement);
   const v = (name: string): string => css.getPropertyValue(name).trim();
   return {
@@ -57,8 +59,11 @@ function cellTheme(): Record<string, string | number> {
 
 export function TableView({ list }: { list: LibraryList }) {
   const t = useT();
-  const theme = useApp((s) => s.theme);
+  const resolved = useResolvedTheme();
+  const gridTheme = useMemo(() => cellTheme(resolved), [resolved]);
   const lang = useApp((s) => s.lang);
+  const sortKey = useApp((s) => s.sort);
+  const setSort = useApp((s) => s.setSort);
   const selected = useApp((s) => s.selected);
   const allMatching = useApp((s) => s.allMatching);
   const excluded = useApp((s) => s.excluded);
@@ -88,7 +93,17 @@ export function TableView({ list }: { list: LibraryList }) {
   }, [host]);
 
   const visible = useMemo(() => prefs.order.filter((c) => !prefs.hidden.includes(c)), [prefs]);
-  const titles: Record<ColumnId, string> = { star: "★", name: t("name"), phones: t("phones"), emails: t("emails"), company: t("company"), groups: t("groups"), aliases: t("aliases"), note: t("note"), updated: t("updated") };
+  const titles: Record<ColumnId, string> = {
+    star: "★",
+    name: `${t("name")}${sortKey === "nameAsc" ? " ↑" : sortKey === "nameDesc" ? " ↓" : ""}`,
+    phones: t("phones"),
+    emails: t("emails"),
+    company: `${t("company")}${sortKey === "company" ? " ↑" : ""}`,
+    groups: t("groups"),
+    aliases: t("aliases"),
+    note: t("note"),
+    updated: `${t("updated")}${sortKey === "edited" ? " ↓" : ""}`
+  };
   const defaults: Record<ColumnId, number> = { star: 44, name: 200, phones: 180, emails: 200, company: 150, groups: 140, aliases: 140, note: 200, updated: 120 };
   const columns: GridColumn[] = visible.map((id) => ({ id, title: titles[id], width: prefs.widths[id] ?? defaults[id] }));
 
@@ -96,6 +111,10 @@ export function TableView({ list }: { list: LibraryList }) {
     detailsRef.current.clear();
     pendingIdsRef.current.clear();
   }, [version]);
+
+  useEffect(() => {
+    gridRef.current?.scrollTo(0, 0);
+  }, [list.querySeq]);
 
   useEffect(
     () => () => {
@@ -150,7 +169,7 @@ export function TableView({ list }: { list: LibraryList }) {
         case "note": return text(full ? full.note : "");
       }
     },
-    [list, visible, need, lang]
+    [list, list.generation, visible, need, lang]
   );
 
   const onCellEdited = useCallback(
@@ -172,7 +191,7 @@ export function TableView({ list }: { list: LibraryList }) {
         else if (id === "phones") input.phones = splitList(data).map((v, i) => ({ value: v, label: base.phones[i]?.label ?? "mobile" }));
         else if (id === "emails") input.emails = splitList(data).map((v, i) => ({ value: v, label: base.emails[i]?.label ?? "work" }));
       } else return;
-      const saved = await saveContactInput(input);
+      const saved = await saveContactInput(input, { toast: false });
       if (saved) {
         detailsRef.current.set(saved.id, saved);
         gridRef.current?.updateCells([{ cell: [col, rowIndex] }]);
@@ -208,12 +227,10 @@ export function TableView({ list }: { list: LibraryList }) {
         if (sel.rows.length === 0) state.clearSelection();
         else {
           const next = new Set(state.excluded);
-          for (let i = 0; i < list.total; i++) {
-            const row = list.getRow(i);
-            if (!row) continue;
+          list.forEachLoaded((row, i) => {
             if (sel.rows.hasIndex(i)) next.delete(row.id);
             else next.add(row.id);
-          }
+          });
           if (next.size >= list.total) state.clearSelection();
           else if (next.size !== state.excluded.size || [...next].some((id) => !state.excluded.has(id))) useApp.setState({ excluded: next });
         }
@@ -233,9 +250,6 @@ export function TableView({ list }: { list: LibraryList }) {
     },
     [list]
   );
-
-  const sortKey = useApp((s) => s.sort);
-  const setSort = useApp((s) => s.setSort);
 
   const moveColumn = (from: number, to: number): void => {
     const moved = visible[from];
@@ -269,7 +283,7 @@ export function TableView({ list }: { list: LibraryList }) {
           </PopoverContent>
         </Popover>
       </div>
-      <div ref={setHost} className="min-h-0 flex-1" key={theme}>
+      <div ref={setHost} className="min-h-0 flex-1" key={resolved}>
         <DataEditor
           ref={gridRef}
           columns={columns}
@@ -299,7 +313,7 @@ export function TableView({ list }: { list: LibraryList }) {
           smoothScrollY
           rowHeight={36}
           headerHeight={36}
-          theme={cellTheme()}
+          theme={gridTheme}
           onVisibleRegionChanged={(range) => {
             list.ensure(range.y);
             list.ensure(range.y + range.height);

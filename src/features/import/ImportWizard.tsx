@@ -1,6 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { Check, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { db } from "../../app/db";
 import { formatNumber } from "../../app/i18n";
 import { useApp } from "../../app/store";
@@ -20,7 +20,7 @@ function FormatGuide({ open, onOpenChange }: { open: boolean; onOpenChange: (o: 
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[60] bg-[var(--scrim)] anim-fade" />
-        <Dialog.Content aria-describedby={undefined} className="fixed inset-y-0 end-0 z-[61] flex w-[min(92vw,440px)] flex-col border-s border-line bg-card shadow-[var(--shadow)] anim-fade">
+        <Dialog.Content aria-describedby={undefined} className="fixed inset-y-0 end-0 z-[61] flex w-[min(92vw,440px)] flex-col border-s border-line bg-card shadow-[var(--shadow)] anim-push">
           <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
             <Dialog.Title className="serif text-2xl">{w.guide.title}</Dialog.Title>
             <Dialog.Close className="grid size-8 place-items-center rounded-lg text-muted hover:bg-sunk" aria-label={w.close}>
@@ -57,6 +57,12 @@ export function ImportWizard() {
   const result = useWizard((s) => s.result);
   const cancelledNote = useWizard((s) => s.cancelledNote);
   const [guide, setGuide] = useState(false);
+  const lastStep = useRef(step);
+  const direction = useRef<"fwd" | "back">("fwd");
+  if (lastStep.current !== step) {
+    direction.current = step > lastStep.current ? "fwd" : "back";
+    lastStep.current = step;
+  }
 
   useEffect(() => {
     if (open) {
@@ -66,6 +72,7 @@ export function ImportWizard() {
   }, [open]);
 
   const close = (): void => {
+    if (useWizard.getState().committing) return;
     if (parsing) void useWizard.getState().cancelParse();
     void db.stageDiscard();
     disposeImportWorker();
@@ -95,7 +102,7 @@ export function ImportWizard() {
 
   return (
     <>
-      <Modal open={open} onOpenChange={(o) => !o && close()} title={w.title} fullScreen>
+      <Modal open={open} onOpenChange={(o) => !o && close()} title={w.title} fullScreen dismissible={!committing}>
         <div className="flex h-full flex-col">
           <ol className="flex items-center justify-center gap-2 border-b border-line bg-card px-4 py-3" aria-label={w.title}>
             {w.steps.map((label, i) => {
@@ -113,11 +120,13 @@ export function ImportWizard() {
           </ol>
           {cancelledNote && step === 3 ? <div role="status" className="bg-accent-soft px-4 py-2 text-center text-sm">{w.cancelled}</div> : null}
           <div className="scroll-thin min-h-0 flex-1 overflow-auto bg-paper">
-            {step === 1 ? <StepSource onGuide={() => setGuide(true)} /> : null}
-            {step === 2 ? <StepPreview /> : null}
-            {step === 3 ? <StepMapping /> : null}
-            {step === 4 ? <StepReview /> : null}
-            {step === 5 ? <StepFinish onClose={close} /> : null}
+            <div key={step} className={cx("h-full", direction.current === "fwd" ? "anim-step-fwd" : "anim-step-back")}>
+              {step === 1 ? <StepSource onGuide={() => setGuide(true)} /> : null}
+              {step === 2 ? <StepPreview /> : null}
+              {step === 3 ? <StepMapping /> : null}
+              {step === 4 ? <StepReview /> : null}
+              {step === 5 ? <StepFinish onClose={close} /> : null}
+            </div>
           </div>
           {step < 5 ? (
             <div className="flex items-center justify-between border-t border-line bg-card px-5 py-3">

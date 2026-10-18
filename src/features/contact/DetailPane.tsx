@@ -1,4 +1,4 @@
-import { ChevronLeft, Copy, EllipsisVertical, MessageCircle, MessageSquare, Phone, Plus, Send, Share2, Star, UserRound, X } from "lucide-react";
+import { Check, ChevronLeft, Copy, EllipsisVertical, MessageCircle, MessageSquare, Phone, Plus, Send, Share2, Star, UserRound, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { contactToInput, copyText, createGroupNamed, findDuplicatesOf, saveContactInput, shareVCard, toggleStar } from "../../app/actions";
 import type { CountryCode } from "libphonenumber-js/max";
@@ -6,11 +6,12 @@ import { firstReachable, messageUrl } from "../../core/messaging";
 import type { MessageChannel } from "../../core/messaging";
 import { db } from "../../app/db";
 import { useT } from "../../app/i18n";
-import { useApp } from "../../app/store";
+import { EMPTY_GROUPS, useApp } from "../../app/store";
 import { styleNumber } from "../../core/phone";
-import type { Contact, ContactInput, LabeledValue } from "../../core/types";
+import type { Contact, ContactInput, ContactRow, LabeledValue } from "../../core/types";
 import { PHONE_LABELS, EMAIL_LABELS } from "../../core/types";
-import { Avatar, Button, DropdownMenu, IconButton, LinkButton, Popover, PopoverContent, PopoverTrigger, Select, Spinner, cx } from "../../ui/primitives";
+import { Avatar, Button, DropdownMenu, IconButton, LinkButton, Popover, PopoverContent, PopoverTrigger, Select, DelayedSpinner, Spinner, cx } from "../../ui/primitives";
+import { getListController } from "../library/controller";
 import { InlineText } from "./Inline";
 
 const COARSE = typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
@@ -43,7 +44,7 @@ function ValueRows({ kind, items, onChange }: { kind: "phone" | "email"; items: 
           <div className="min-w-0 flex-1">
             <InlineText value={item.value} dir="ltr" inputMode={kind === "phone" ? "tel" : "email"} placeholder={kind === "phone" ? t("phone") : t("email")} onSave={(value) => value.trim() ? onChange(items.map((x, i) => (i === index ? { ...x, value } : x))) : removeAt(index)} className="tabular-nums" />
           </div>
-          <IconButton label={t("delete")} onClick={() => removeAt(index)} className="opacity-0 group-hover:opacity-100 focus:opacity-100">
+          <IconButton label={t("delete")} onClick={() => removeAt(index)} className="can-hover:opacity-0 can-hover:group-hover:opacity-100 focus-visible:opacity-100">
             <X size={14} />
           </IconButton>
         </div>
@@ -89,7 +90,7 @@ function AliasChips({ aliases, onChange }: { aliases: string[]; onChange: (next:
 
 function GroupChips({ groups, onChange }: { groups: string[]; onChange: (next: string[]) => void }) {
   const t = useT();
-  const all = useApp((s) => s.counts?.groups ?? []);
+  const all = useApp((s) => s.counts?.groups ?? EMPTY_GROUPS);
   const [draft, setDraft] = useState("");
   const available = all.filter((g) => !groups.includes(g.name));
   const colorOf = (name: string): string => all.find((g) => g.name === name)?.color ?? "var(--accent)";
@@ -145,6 +146,31 @@ function GroupChips({ groups, onChange }: { groups: string[]; onChange: (next: s
   );
 }
 
+function DetailSkeleton({ row }: { row: ContactRow }) {
+  return (
+    <aside className="flex h-full min-h-0 flex-col" aria-busy="true" aria-label={row.name}>
+      <div className="border-b border-line px-5 pb-4 pt-5">
+        <div className="flex items-start gap-4">
+          <Avatar name={row.name} seed={row.id} size={64} />
+          <div className="min-w-0 flex-1">
+            <div className="serif truncate px-2 text-[28px] leading-tight">{row.name}</div>
+            <div className="truncate px-2 text-sm text-ink2">{row.company}</div>
+            <div className="truncate px-2 text-sm tabular-nums text-muted" dir="ltr">{row.primaryPhone}</div>
+          </div>
+        </div>
+      </div>
+      <div className="space-y-5 px-5 py-4">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="space-y-2">
+            <div className="h-3 w-20 animate-pulse rounded bg-sunk" />
+            <div className="h-8 w-full animate-pulse rounded-lg bg-sunk" />
+          </div>
+        ))}
+      </div>
+    </aside>
+  );
+}
+
 export function DetailPane({ onBack }: { onBack?: () => void }) {
   const t = useT();
   const lang = useApp((s) => s.lang);
@@ -158,6 +184,16 @@ export function DetailPane({ onBack }: { onBack?: () => void }) {
   const latestRef = useRef<Contact | null>(null);
   const pendingSaves = useRef(0);
   const saveChain = useRef<Promise<unknown>>(Promise.resolve());
+  const failedRef = useRef(false);
+  const idleTimer = useRef<number | null>(null);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+
+  useEffect(
+    () => () => {
+      if (idleTimer.current !== null) window.clearTimeout(idleTimer.current);
+    },
+    []
+  );
 
   useEffect(() => {
     let alive = true;
@@ -166,13 +202,19 @@ export function DetailPane({ onBack }: { onBack?: () => void }) {
       setContact(null);
       return;
     }
+    let timer: number | null = null;
     if (latestRef.current && latestRef.current.id !== focusedId) {
-      latestRef.current = null;
-      setContact(null);
+      timer = window.setTimeout(() => {
+        if (alive && latestRef.current && latestRef.current.id !== focusedId) {
+          latestRef.current = null;
+          setContact(null);
+        }
+      }, 200);
     }
     setLoading(true);
     void db.getContact(focusedId).then((c) => {
       if (!alive) return;
+      if (timer !== null) window.clearTimeout(timer);
       const editingThis = pendingSaves.current > 0 && latestRef.current?.id === focusedId;
       if (!editingThis) {
         latestRef.current = c;
@@ -182,6 +224,7 @@ export function DetailPane({ onBack }: { onBack?: () => void }) {
     });
     return () => {
       alive = false;
+      if (timer !== null) window.clearTimeout(timer);
     };
   }, [focusedId, version]);
 
@@ -199,10 +242,30 @@ export function DetailPane({ onBack }: { onBack?: () => void }) {
     latestRef.current = next;
     setContact(next);
     pendingSaves.current += 1;
+    if (idleTimer.current !== null) window.clearTimeout(idleTimer.current);
+    setSaveState("saving");
     saveChain.current = saveChain.current
-      .then(() => saveContactInput(contactToInput(next)))
+      .then(() => saveContactInput(contactToInput(next), { toast: false }))
+      .then((saved) => {
+        if (!saved) failedRef.current = true;
+      })
       .finally(() => {
         pendingSaves.current -= 1;
+        if (pendingSaves.current === 0) {
+          if (failedRef.current) {
+            failedRef.current = false;
+            setSaveState("idle");
+          } else {
+            setSaveState("saved");
+            idleTimer.current = window.setTimeout(() => setSaveState("idle"), 1200);
+          }
+          void db.getContact(next.id).then((c) => {
+            if (c && latestRef.current?.id === c.id && pendingSaves.current === 0) {
+              latestRef.current = c;
+              setContact(c);
+            }
+          });
+        }
       });
   }, []);
 
@@ -226,17 +289,21 @@ export function DetailPane({ onBack }: { onBack?: () => void }) {
     );
   }
   if (!contact) {
+    const controller = getListController();
+    const seed = controller && focusedId ? controller.getRow(controller.indexOfId(focusedId)) : undefined;
+    if (seed) return <DetailSkeleton row={seed} />;
     return (
       <div className="grid h-full place-items-center">
-        <Spinner size={22} />
+        <DelayedSpinner size={22} />
       </div>
     );
   }
+  const stale = contact.id !== focusedId;
   const reachable = firstReachable(contact.phones, country);
   const linkFor = (channel: MessageChannel): string | null => (reachable ? messageUrl(channel, reachable, country) : null);
   const unreachableReason = t(contact.phones.length > 0 ? "needsCountryCode" : "noNumberToMessage");
   return (
-    <aside key={contact.id} className="anim-detail flex h-full min-h-0 flex-col" aria-label={contact.name}>
+    <aside key={contact.id} className={cx("anim-detail flex h-full min-h-0 flex-col transition-opacity duration-150", stale && "pointer-events-none opacity-60")} aria-label={contact.name} aria-busy={stale}>
       <div className="border-b border-line px-5 pb-4 pt-5">
         {onBack ? (
           <Button size="sm" variant="ghost" onClick={onBack} className="-ms-2 mb-2">
@@ -289,6 +356,7 @@ export function DetailPane({ onBack }: { onBack?: () => void }) {
             entries={[
               { key: "dup", label: t("duplicateContact"), onSelect: () => void saveContactInput({ ...contactToInput(contact), id: undefined, name: contact.name, importBatch: null, createdAt: undefined, updatedAt: undefined }) },
               { key: "similar", label: t("findSimilar"), onSelect: () => void findDuplicatesOf(contact) },
+              { key: "copyId", label: t("copyId"), onSelect: () => void copyText(contact.id) },
               { key: "sep", label: "", separator: true },
               { key: "delete", label: t("delete"), danger: true, onSelect: () => useApp.getState().openDialog("confirmDelete", { kind: "ids", ids: [contact.id] }) }
             ]}
@@ -324,11 +392,16 @@ export function DetailPane({ onBack }: { onBack?: () => void }) {
         <span>
           {t("updated")}: {stamp(contact.updatedAt)}
         </span>
-        <span className="flex items-center gap-1">
-          <span className="tabular-nums">{contact.id}</span>
-          <IconButton label={t("copyId")} onClick={() => void copyText(contact.id)} className="size-6">
-            <Copy size={12} />
-          </IconButton>
+        <span role="status" className={cx("ms-auto flex items-center gap-1 transition-opacity duration-200", saveState === "idle" ? "opacity-0" : "opacity-100")}>
+          {saveState === "saving" ? (
+            <>
+              <Spinner size={10} /> {t("saving")}
+            </>
+          ) : (
+            <>
+              <Check size={12} /> {t("savedToast")}
+            </>
+          )}
         </span>
       </footer>
     </aside>

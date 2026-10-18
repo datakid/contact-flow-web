@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { ar } from "../i18n/ar";
 import { en } from "../i18n/en";
 import type { Messages } from "../i18n/en";
@@ -17,7 +18,7 @@ export function translate<K extends keyof Messages>(lang: Language, key: K, ...a
 
 export function useT(): TFunction {
   const lang = useApp((s) => s.lang);
-  return ((key: keyof Messages, ...args: unknown[]) => translate(lang, key as never, ...(args as never[]))) as TFunction;
+  return useMemo(() => ((key: keyof Messages, ...args: unknown[]) => translate(lang, key as never, ...(args as never[]))) as TFunction, [lang]);
 }
 
 export function formatNumber(lang: Language, n: number): string {

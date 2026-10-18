@@ -10,6 +10,12 @@ function isTyping(target: EventTarget | null): boolean {
   return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
 }
 
+function isInOverlay(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest('[role="menu"],[role="menuitem"],[role="listbox"],[role="option"],[role="dialog"],[role="alertdialog"],[data-radix-popper-content-wrapper]') !== null;
+}
+
+let moveChain: Promise<void> = Promise.resolve();
+
 async function moveFocus(delta: number, extend: boolean): Promise<void> {
   const controller = getListController();
   const state = useApp.getState();
@@ -41,10 +47,13 @@ export function useGlobalShortcuts(): void {
       const key = event.key;
 
       if (mod && key.toLowerCase() === "k") {
-        event.preventDefault();
-        state.openDialog(state.dialog === "palette" ? null : "palette");
+        if (state.dialog === null || state.dialog === "palette") {
+          event.preventDefault();
+          state.openDialog(state.dialog === "palette" ? null : "palette");
+        }
         return;
       }
+      if (isInOverlay(event.target)) return;
       if (state.dialog) return;
       if (mod && key.toLowerCase() === "i") {
         event.preventDefault();
@@ -96,6 +105,7 @@ export function useGlobalShortcuts(): void {
         case "E":
           if (state.focusedId) {
             event.preventDefault();
+            state.setMobileDetail(true);
             useApp.setState({ editingId: state.focusedId });
           }
           break;
@@ -118,9 +128,14 @@ export function useGlobalShortcuts(): void {
         case "ArrowDown":
         case "ArrowUp":
           event.preventDefault();
-          void moveFocus(key === "ArrowDown" ? 1 : -1, event.shiftKey);
+          {
+            const delta = key === "ArrowDown" ? 1 : -1;
+            const extend = event.shiftKey;
+            moveChain = moveChain.then(() => moveFocus(delta, extend)).catch(() => undefined);
+          }
           break;
         case "Escape":
+          if (document.querySelector("[data-radix-popper-content-wrapper]")) return;
           if (state.selected.size > 0 || state.allMatching) state.clearSelection();
           else if (state.mobileDetailOpen) state.setMobileDetail(false);
           break;

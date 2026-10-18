@@ -3,7 +3,7 @@ import { db } from "../../app/db";
 import { useT } from "../../app/i18n";
 import { useApp } from "../../app/store";
 import type { DuplicateGroup } from "../../core/db/service";
-import { Avatar, Badge, Button, Modal, Spinner, cx } from "../../ui/primitives";
+import { Avatar, Badge, Button, DelayedSpinner, Modal, cx } from "../../ui/primitives";
 
 const PAGE = 50;
 
@@ -35,13 +35,19 @@ export function DuplicatesDialog() {
     setBusy(true);
     const state = useApp.getState();
     const historyIds: string[] = [];
-    for (const g of groupList) {
-      const merged = await db.mergeGroup(keep[g.key] ?? g.keepId, g.members.map((m) => m.id), t("merged", 1));
-      if (merged.historyId) historyIds.push(merged.historyId);
+    try {
+      for (const g of groupList) {
+        const merged = await db.mergeGroup(keep[g.key] ?? g.keepId, g.members.map((m) => m.id), t("merged", 1));
+        if (merged.historyId) historyIds.push(merged.historyId);
+      }
+      await state.refresh();
+      state.toast(t("merged", groupList.length), historyIds.length > 0 ? historyIds : null);
+    } catch (error) {
+      await state.refresh();
+      state.toast(error instanceof Error ? error.message : String(error), null, "error");
+    } finally {
+      setBusy(false);
     }
-    await state.refresh();
-    state.toast(t("merged", groupList.length), historyIds.length > 0 ? historyIds : null);
-    setBusy(false);
   };
 
   return (
@@ -63,7 +69,7 @@ export function DuplicatesDialog() {
               close();
             }}
           >
-            {t("duplicates")}
+            {t("showInList")}
           </Button>
           <Button variant="primary" disabled={busy || groups.length === 0} onClick={() => void merge(groups)}>
             {t("mergeN", groups.length)}
@@ -72,7 +78,7 @@ export function DuplicatesDialog() {
       }
     >
       <div className="space-y-3 p-4">
-        {loading ? <div className="grid place-items-center p-8"><Spinner size={22} /></div> : null}
+        {loading ? <div className="grid place-items-center p-8"><DelayedSpinner size={22} /></div> : null}
         {!loading && groups.length === 0 ? <p className="p-8 text-center text-sm text-muted">{t("noDuplicates")}</p> : null}
         {groups.map((g) => (
           <section key={g.key} className="rounded-2xl border border-line bg-paper p-3">

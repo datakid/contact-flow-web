@@ -1,11 +1,15 @@
 import * as Comlink from "comlink";
 import { create } from "zustand";
 import { db, spawnImportWorker } from "../../app/db";
+import { translate } from "../../app/i18n";
+import { useApp } from "../../app/store";
 import type { WorkerHandle } from "../../app/db";
 import type { CommitResult, ImportMode, MergeMode, StageSummary } from "../../core/db/staging";
 import { autoMapColumns, DEFAULT_SEPARATORS, headerSignature, isMappingValid } from "../../core/formats/mapping";
 import type { MappingColumn, Separators } from "../../core/formats/mapping";
 import { BLOCK_BYTES } from "../../core/formats/reader";
+import { extensionFormat } from "../../core/formats/sniff";
+import type { SniffResult } from "../../core/formats/sniff";
 import type { PreviewOverrides, PreviewResult } from "../../core/formats/reader";
 import type { PresetRow } from "../../core/db/service";
 import type { ImportWorkerApi, ParseProgress } from "../../workers/import.worker";
@@ -103,8 +107,27 @@ export const useWizard = create<WizardState>((set, get) => {
     const seq = (previewSeq.get(key) ?? 0) + 1;
     previewSeq.set(key, seq);
     patchTable(key, { loading: true });
-    const w = await worker();
-    const result = await w.api.preview(table.file, table.overrides);
+    let result: PreviewResult;
+    try {
+      const w = await worker();
+      result = await w.api.preview(table.file, table.overrides);
+    } catch (error) {
+      if (previewSeq.get(key) !== seq) return;
+      const fallbackFormat = table.overrides.format ?? extensionFormat(table.file.name) ?? "csv";
+      const detected: SniffResult = { format: fallbackFormat, encoding: "utf-8", delimiter: ",", confidence: "low", extensionFormat: extensionFormat(table.file.name), mismatch: false };
+      patchTable(key, {
+        loading: false,
+        preview: {
+          ok: false,
+          detected,
+          used: { format: fallbackFormat, encoding: table.overrides.encoding ?? "utf-8", delimiter: table.overrides.delimiter ?? ",", sheet: table.overrides.sheet ?? "", headerRow: Math.max(table.overrides.headerRow ?? 0, 0) },
+          rawText: "",
+          reason: error instanceof Error ? error.message : String(error),
+          sizeBytes: table.file.size
+        }
+      });
+      return;
+    }
     if (previewSeq.get(key) !== seq) return;
     const current = get().tables.find((t) => t.key === key);
     if (!current) return;
@@ -140,7 +163,11 @@ export const useWizard = create<WizardState>((set, get) => {
       const keys: string[] = [];
       const added: TableState[] = [];
       for (const file of files) {
-        if (file.size > BLOCK_BYTES) continue;
+        if (file.size > BLOCK_BYTES) {
+          const app = useApp.getState();
+          app.toast(translate(app.lang, "fileTooLarge", file.name), null, "error");
+          continue;
+        }
         const key = `f${++fileSeq}`;
         keys.push(key);
         added.push({ key, file, label: file.name, overrides: {}, preview: null, loading: true, columns: [], presetOffer: null });

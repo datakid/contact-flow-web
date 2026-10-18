@@ -2,7 +2,7 @@ import { MessageCircle, Play, Send, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { copyText } from "../../app/actions";
 import type { CountryCode } from "libphonenumber-js/max";
-import { messageUrl } from "../../core/messaging";
+import { firstReachable, messageUrl } from "../../core/messaging";
 import { db } from "../../app/db";
 import { formatNumber, useT } from "../../app/i18n";
 import { useApp } from "../../app/store";
@@ -106,7 +106,7 @@ export function QueueDialog() {
   const done = queue ? queue.index >= queue.ids.length : false;
 
   const country = useApp((s) => s.defaultCountry) as CountryCode;
-  const sendLink = queue && current ? messageUrl(queue.channel, current.phones[0]?.value ?? "", country, message) : null;
+  const sendLink = queue && current ? messageUrl(queue.channel, firstReachable(current.phones, country) ?? "", country, message) : null;
   const onSent = (): void => {
     if (!queue) return;
     if (queue.channel === "signal") void copyText(message);
@@ -181,7 +181,7 @@ export function QueueDialog() {
           </section>
           <section className="space-y-2">
             <div className="text-xs font-bold uppercase tracking-wider text-muted rtl:tracking-normal">{t("channel")}</div>
-            <Segmented value={channel} onChange={setChannel} options={channels.map((c) => ({ value: c, label: t(c) }))} />
+            <Segmented label={t("channel")} value={channel} onChange={setChannel} options={channels.map((c) => ({ value: c, label: t(c) }))} />
             {recipientIds.length > 1 && recipientIds.length <= recipients.length && COARSE ? (
               <div className={cx("space-y-2 rounded-xl bg-[#f6d860]/30 p-3 text-sm")}>
                 <p>{t("groupSmsWarn")}</p>

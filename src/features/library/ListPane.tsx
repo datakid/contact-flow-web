@@ -1,16 +1,16 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Copy, EllipsisVertical, Pencil, Star, StickyNote } from "lucide-react";
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
-import { addToGroup, copyText, deleteSelection, findDuplicatesOf, shareVCard, toggleStar } from "../../app/actions";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { addToGroup, copyText, deleteSelection, findDuplicatesOf, loadSampleContacts, shareVCard, toggleStar } from "../../app/actions";
 import type { CountryCode } from "libphonenumber-js/max";
 import { messageUrl } from "../../core/messaging";
 import { db } from "../../app/db";
 import { translate, useT } from "../../app/i18n";
 import type { TFunction } from "../../app/i18n";
-import { useApp } from "../../app/store";
+import { EMPTY_GROUPS, useApp } from "../../app/store";
 import { fold, highlightRanges, tokens } from "../../core/fold";
 import type { ContactRow, LibraryFilter, MatchTag } from "../../core/types";
-import { Avatar, Badge, Checkbox, ContextMenu, DropdownMenu, IconButton, Spinner, cx } from "../../ui/primitives";
+import { Avatar, Badge, Button, Checkbox, ContextMenu, DelayedSpinner, DropdownMenu, IconButton, cx } from "../../ui/primitives";
 import type { MenuEntry } from "../../ui/primitives";
 import { setListController } from "./controller";
 import type { LibraryList } from "./useLibraryList";
@@ -76,6 +76,7 @@ interface RowProps {
   onActivate: (row: ContactRow, index: number, event: React.MouseEvent) => void;
   onToggle: (row: ContactRow, index: number, shift: boolean) => void;
   onEdit: (row: ContactRow) => void;
+  getLoadedIds: () => string[];
 }
 
 const MAX_RANGE = 1000;
@@ -105,7 +106,7 @@ async function selectRange(list: LibraryList, anchor: number, index: number): Pr
 
 function useRowMenu(row: ContactRow): () => MenuEntry[] {
   const t = useT();
-  const groups = useApp((s) => s.counts?.groups ?? []);
+  const groups = useApp((s) => s.counts?.groups ?? EMPTY_GROUPS);
   const country = useApp((s) => s.defaultCountry) as CountryCode;
   const state = useApp;
   return useCallback((): MenuEntry[] => {
@@ -144,7 +145,7 @@ function useRowMenu(row: ContactRow): () => MenuEntry[] {
   }, [row, groups, t, state]);
 }
 
-const ContactRowView = memo(function ContactRowView({ row, index, hits, focused, selected, anySelected, onActivate, onToggle, onEdit }: RowProps) {
+const ContactRowView = memo(function ContactRowView({ row, index, hits, focused, selected, anySelected, onActivate, onToggle, onEdit, getLoadedIds }: RowProps) {
   const pressRef = useRef<number | null>(null);
   const startRef = useRef({ x: 0, y: 0 });
   const suppressClickRef = useRef(false);
@@ -160,14 +161,24 @@ const ContactRowView = memo(function ContactRowView({ row, index, hits, focused,
       <div
         role="row"
         aria-rowindex={index + 1}
-        aria-selected={focused}
+        aria-selected={selected}
+        data-focused={focused}
         data-row-id={row.id}
         draggable
         onDragStart={(e) => {
           const state = useApp.getState();
-          const ids = state.selected.has(row.id) ? [...state.selected] : [row.id];
+          const ids = state.allMatching ? (state.excluded.has(row.id) ? [row.id] : getLoadedIds().filter((id) => !state.excluded.has(id))) : state.selected.has(row.id) ? [...state.selected] : [row.id];
           e.dataTransfer.setData("application/x-cf-ids", JSON.stringify(ids));
           e.dataTransfer.effectAllowed = "copy";
+          const pill = document.createElement("div");
+          pill.textContent = String(ids.length);
+          pill.className = "bg-accent text-white rounded-full px-2 py-0.5 text-xs font-bold";
+          pill.style.position = "fixed";
+          pill.style.top = "-1000px";
+          pill.style.left = "-1000px";
+          document.body.appendChild(pill);
+          e.dataTransfer.setDragImage(pill, 0, 0);
+          window.setTimeout(() => pill.remove(), 0);
         }}
         onPointerDown={(e) => {
           if (e.pointerType !== "touch") return;
@@ -221,7 +232,7 @@ const ContactRowView = memo(function ContactRowView({ row, index, hits, focused,
           </div>
         </div>
         {row.matchTag ? <div role="gridcell"><Badge tone={row.matchTag === "exact" || row.matchTag === "startsWith" ? "accent" : "neutral"}>{t(TAG_KEYS[row.matchTag])}</Badge></div> : null}
-        <div role="gridcell" className="absolute inset-y-0 end-2 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 [&>*]:bg-card/90">
+        <div role="gridcell" className="absolute inset-y-0 end-2 flex items-center gap-0.5 opacity-0 transition-opacity no-hover:hidden pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100 has-[[data-state=open]]:pointer-events-auto has-[[data-state=open]]:opacity-100 [&>*]:bg-card/90">
           <IconButton tabIndex={-1} label={row.starred ? t("unstar") : t("star")} active={row.starred} onClick={(e) => { e.stopPropagation(); void toggleStar(row); }}>
             <Star size={15} className={row.starred ? "fill-accent" : ""} />
           </IconButton>
@@ -237,7 +248,7 @@ const ContactRowView = memo(function ContactRowView({ row, index, hits, focused,
                 <EllipsisVertical size={15} />
               </IconButton>
             }
-            entries={menu()}
+            entries={menu}
           />
         </div>
       </div>
@@ -254,7 +265,18 @@ export function ListView({ list }: { list: LibraryList }) {
   const selected = useApp((s) => s.selected);
   const allMatching = useApp((s) => s.allMatching);
   const excluded = useApp((s) => s.excluded);
+  const bulkBarVisible = useApp((s) => s.bulkBarVisible);
+  const filter = useApp((s) => s.filter);
+  const totalAll = useApp((s) => s.counts?.all);
+  const openDialog = useApp((s) => s.openDialog);
+  const setFilter = useApp((s) => s.setFilter);
+  const setSearch = useApp((s) => s.setSearch);
+  const [bubble, setBubble] = useState<string | null>(null);
+  const bubbleTimer = useRef<number | null>(null);
+  const lastLetter = useRef<string | null>(null);
   const parentRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef(list);
+  listRef.current = list;
   const hasLetters = !list.searching && list.letters.length > 0 && (sort === "nameAsc" || sort === "nameDesc");
   const starts = useMemo(() => list.letters.map((l, k) => l.offset + k), [list.letters]);
 
@@ -290,7 +312,8 @@ export function ListView({ list }: { list: LibraryList }) {
     getScrollElement: () => parentRef.current,
     estimateSize: (i) => ("header" in resolve(i) ? HEADER_HEIGHT : ROW_HEIGHT),
     getItemKey,
-    overscan: 12
+    overscan: 12,
+    paddingEnd: bulkBarVisible ? 80 : 8
   });
   useLayoutEffect(() => {
     virtualizer.measure();
@@ -304,7 +327,7 @@ export function ListView({ list }: { list: LibraryList }) {
     }
   }, [items, resolve, list]);
 
-  const hits = useMemo(() => (search.trim() ? tokens(fold(search)) : []), [search]);
+  const hits = useMemo(() => (list.query.trim() ? tokens(fold(list.query)) : []), [list.query]);
 
   const rowToItem = useCallback(
     (row: number): number => {
@@ -315,6 +338,24 @@ export function ListView({ list }: { list: LibraryList }) {
     },
     [hasLetters, list.letters]
   );
+
+  useEffect(() => {
+    virtualizer.scrollToOffset(0);
+  }, [list.querySeq]);
+
+  useEffect(() => {
+    if (!focusedId) return;
+    const at = list.indexOfId(focusedId);
+    if (at < 0) return;
+    const item = rowToItem(at);
+    if (!virtualizer.getVirtualItems().some((v) => v.index === item)) virtualizer.scrollToIndex(item, { align: "center" });
+  }, [focusedId]);
+
+  const getLoadedIds = useCallback((): string[] => {
+    const ids: string[] = [];
+    listRef.current.forEachLoaded((r) => ids.push(r.id));
+    return ids;
+  }, []);
 
   useEffect(() => {
     setListController({
@@ -331,28 +372,28 @@ export function ListView({ list }: { list: LibraryList }) {
     (row: ContactRow, index: number, event: React.MouseEvent) => {
       const state = useApp.getState();
       if (event.metaKey || event.ctrlKey) {
-        state.toggleSelected(row.id, index, list.matchTotal);
+        state.toggleSelected(row.id, index, listRef.current.matchTotal);
         return;
       }
       if (event.shiftKey && state.anchorIndex !== null) {
-        void selectRange(list, state.anchorIndex, index);
+        void selectRange(listRef.current, state.anchorIndex, index);
         return;
       }
       state.setFocused(row.id, index);
     },
-    [list]
+    []
   );
 
   const onToggle = useCallback(
     (row: ContactRow, index: number, shift: boolean) => {
       const state = useApp.getState();
       if (shift && state.anchorIndex !== null) {
-        void selectRange(list, state.anchorIndex, index);
+        void selectRange(listRef.current, state.anchorIndex, index);
         return;
       }
-      state.toggleSelected(row.id, index, list.matchTotal);
+      state.toggleSelected(row.id, index, listRef.current.matchTotal);
     },
-    [list]
+    []
   );
 
   const onEdit = useCallback((row: ContactRow) => {
@@ -370,6 +411,20 @@ export function ListView({ list }: { list: LibraryList }) {
 
   const rail = lang === "ar" ? ARABIC_RAIL : LATIN_RAIL;
   const present = new Map(list.letters.map((l, k) => [l.letter, k]));
+  const scrub = (e: React.PointerEvent<HTMLDivElement>): void => {
+    const letter = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>("[data-letter]")?.dataset.letter;
+    if (!letter || letter === lastLetter.current) return;
+    lastLetter.current = letter;
+    jumpTo(letter);
+    navigator.vibrate?.(5);
+    if (bubbleTimer.current !== null) window.clearTimeout(bubbleTimer.current);
+    setBubble(letter);
+  };
+  const endScrub = (): void => {
+    lastLetter.current = null;
+    if (bubbleTimer.current !== null) window.clearTimeout(bubbleTimer.current);
+    bubbleTimer.current = window.setTimeout(() => setBubble(null), 400);
+  };
   const jumpTo = (letter: string): void => {
     let k = present.get(letter);
     if (k === undefined) {
@@ -383,18 +438,45 @@ export function ListView({ list }: { list: LibraryList }) {
   if (list.loading && list.total === 0) {
     return (
       <div className="grid flex-1 place-items-center">
-        <Spinner size={22} />
+        <DelayedSpinner size={22} />
       </div>
     );
   }
 
   if (!list.loading && list.total === 0) {
+    const hasSearch = search.trim() !== "";
+    const libraryEmpty = filter.kind === "all" && !hasSearch && totalAll === 0;
     return (
       <div className="grid flex-1 place-items-center px-8 text-center">
         <div>
           <StickyNote className="mx-auto mb-3 text-faint" size={30} />
-          <div className="serif text-2xl">{search.trim() ? t("noResults") : t("emptyTitle")}</div>
-          <p className="mt-1 text-sm text-muted">{search.trim() ? t("noResultsBody") : t("emptyBody")}</p>
+          <div className="serif text-2xl">{hasSearch ? t("noResults") : t("emptyTitle")}</div>
+          <p className="mt-1 text-sm text-muted">{hasSearch ? t("noResultsBody") : t("emptyBody")}</p>
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+            {libraryEmpty ? (
+              <>
+                <Button variant="primary" onClick={() => openDialog("import")}>
+                  {t("import")}
+                </Button>
+                <Button variant="outline" onClick={() => openDialog("create")}>
+                  {t("newContact")}
+                </Button>
+                <Button variant="ghost" onClick={() => void loadSampleContacts()}>
+                  {t("emptyCtaSample")}
+                </Button>
+              </>
+            ) : null}
+            {!libraryEmpty && !hasSearch && filter.kind !== "all" ? (
+              <Button variant="outline" onClick={() => setFilter({ kind: "all" })}>
+                {t("showAll")}
+              </Button>
+            ) : null}
+            {hasSearch ? (
+              <Button variant="ghost" onClick={() => setSearch("")}>
+                {t("deselect")}
+              </Button>
+            ) : null}
+          </div>
         </div>
       </div>
     );
@@ -402,15 +484,15 @@ export function ListView({ list }: { list: LibraryList }) {
 
   return (
     <div className="relative flex min-h-0 flex-1">
-      <div ref={parentRef} role="grid" aria-label={t("contactsList")} aria-multiselectable="true" aria-rowcount={list.total} className="scroll-thin relative min-h-0 flex-1 overflow-auto">
-        {stickyLetter && (virtualizer.scrollOffset ?? 0) > 0 ? <div aria-hidden="true" className="serif pointer-events-none sticky top-0 z-10 -mb-[30px] h-[30px] bg-paper px-4 text-lg leading-[30px] text-accent">{stickyLetter}</div> : null}
+      <div ref={parentRef} role="grid" aria-label={t("contactsList")} aria-multiselectable="true" aria-rowcount={list.total} className="scroll-thin relative min-h-0 flex-1 overflow-auto" style={{ scrollbarGutter: "stable" }}>
+        {stickyLetter && (virtualizer.scrollOffset ?? 0) > HEADER_HEIGHT ? <div aria-hidden="true" className="serif pointer-events-none sticky top-0 z-10 -mb-[30px] h-[30px] bg-paper px-4 text-lg leading-[30px] text-accent">{stickyLetter}</div> : null}
         <div style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%" }}>
           {items.map((item) => {
             const r = resolve(item.index);
-            const style: React.CSSProperties = { position: "absolute", insetBlockStart: 0, insetInlineStart: 0, width: "100%", height: item.size, transform: `translateY(${item.start}px)` };
+            const style: React.CSSProperties = { position: "absolute", insetBlockStart: 0, insetInlineStart: 0, width: "100%", height: item.size, transform: `translateY(${item.start}px)`, contain: "layout paint" };
             if ("header" in r) {
               return (
-                <div key={`h${item.index}`} style={style} aria-hidden="true" className="serif flex items-end overflow-hidden bg-paper px-4 pb-0.5 text-lg text-accent">
+                <div key={item.key} style={style} aria-hidden="true" className="serif flex items-end overflow-hidden bg-paper px-4 pb-0.5 text-lg text-accent">
                   {list.letters[r.header]?.letter}
                 </div>
               );
@@ -426,19 +508,36 @@ export function ListView({ list }: { list: LibraryList }) {
             }
             return (
               <div key={row.id} style={style} className="overflow-hidden">
-                <ContactRowView row={row} index={r.row} hits={hits} focused={focusedId === row.id} selected={allMatching ? !excluded.has(row.id) : selected.has(row.id)} anySelected={allMatching || selected.size > 0} onActivate={onActivate} onToggle={onToggle} onEdit={onEdit} />
+                <ContactRowView row={row} index={r.row} hits={hits} focused={focusedId === row.id} selected={allMatching ? !excluded.has(row.id) : selected.has(row.id)} anySelected={allMatching || selected.size > 0} onActivate={onActivate} onToggle={onToggle} onEdit={onEdit} getLoadedIds={getLoadedIds} />
               </div>
             );
           })}
         </div>
       </div>
       {hasLetters ? (
-        <div className="flex w-5 shrink-0 select-none flex-col items-center justify-between py-1 text-[10px] font-bold text-muted" aria-hidden="true">
+        <div
+          className="flex w-5 shrink-0 touch-none select-none flex-col items-center justify-between py-1 text-[10px] font-bold text-muted no-hover:w-7"
+          aria-hidden="true"
+          onPointerDown={(e) => {
+            e.currentTarget.setPointerCapture(e.pointerId);
+            scrub(e);
+          }}
+          onPointerMove={(e) => {
+            if (e.currentTarget.hasPointerCapture(e.pointerId)) scrub(e);
+          }}
+          onPointerUp={endScrub}
+          onPointerCancel={endScrub}
+        >
           {rail.map((letter) => (
-            <button key={letter} type="button" tabIndex={-1} onClick={() => jumpTo(letter)} className={cx("w-full leading-none hover:text-accent", present.has(letter) ? "text-ink2" : "text-faint/60")}>
+            <button key={letter} type="button" tabIndex={-1} data-letter={letter} className={cx("w-full leading-none hover:text-accent", present.has(letter) ? "text-ink2" : "text-faint/60")}>
               {letter}
             </button>
           ))}
+        </div>
+      ) : null}
+      {bubble ? (
+        <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center">
+          <div className="serif anim-fade grid size-[72px] place-items-center rounded-2xl bg-card text-5xl shadow-[var(--shadow)]">{bubble}</div>
         </div>
       ) : null}
     </div>

@@ -2,17 +2,20 @@ import { create } from "zustand";
 import { db } from "./db";
 import { translate } from "./i18n";
 import type { Selection } from "../core/db/library";
-import type { Language, LayoutMode, LibraryCounts, LibraryFilter, SortKey, ThemeMode } from "../core/types";
+import type { GroupInfo, Language, LayoutMode, LibraryCounts, LibraryFilter, SortKey, ThemeMode } from "../core/types";
 import { defaultSortFor } from "../core/db/filters";
 
 export type DialogName = "import" | "export" | "batch" | "duplicates" | "queue" | "history" | "settings" | "palette" | "shortcuts" | "create" | "confirmDelete" | "selftest" | null;
 export type ViewMode = "list" | "table";
+
+export const EMPTY_GROUPS: GroupInfo[] = [];
 
 export interface ToastItem {
   id: number;
   message: string;
   undoId: string | string[] | null;
   tone: "info" | "error";
+  open: boolean;
 }
 
 export interface PaneWidths {
@@ -82,6 +85,7 @@ interface AppState extends Persisted {
   editingId: string | null;
   mobileDetailOpen: boolean;
   mobileSidebarOpen: boolean;
+  bulkBarVisible: boolean;
   toasts: ToastItem[];
   setLang: (lang: Language) => void;
   setTheme: (theme: ThemeMode) => void;
@@ -102,6 +106,7 @@ interface AppState extends Persisted {
   closeDialog: () => void;
   setMobileDetail: (open: boolean) => void;
   setMobileSidebar: (open: boolean) => void;
+  setBulkBarVisible: (visible: boolean) => void;
   refresh: () => Promise<void>;
   loadCounts: () => Promise<void>;
   toast: (message: string, undoId?: string | string[] | null, tone?: "info" | "error") => void;
@@ -148,6 +153,7 @@ export const useApp = create<AppState>((set, get) => {
     editingId: null,
     mobileDetailOpen: false,
     mobileSidebarOpen: false,
+    bulkBarVisible: false,
     toasts: [],
     setLang: (lang) => {
       set({ lang });
@@ -208,7 +214,7 @@ export const useApp = create<AppState>((set, get) => {
       save();
     },
     openDialog: (dialog, target = null) => {
-      const patch: Partial<AppState> = { dialog };
+      const patch: Partial<AppState> = { dialog, mobileSidebarOpen: false };
       if (dialog === "export") patch.exportTarget = target;
       if (dialog === "batch") patch.batchTarget = target;
       if (dialog === "queue") patch.queueTarget = target;
@@ -218,6 +224,7 @@ export const useApp = create<AppState>((set, get) => {
     closeDialog: () => set({ dialog: null }),
     setMobileDetail: (mobileDetailOpen) => set({ mobileDetailOpen }),
     setMobileSidebar: (mobileSidebarOpen) => set({ mobileSidebarOpen }),
+    setBulkBarVisible: (bulkBarVisible) => set({ bulkBarVisible }),
     loadCounts: async () => {
       const counts = await db.counts();
       set({ counts });
@@ -227,9 +234,13 @@ export const useApp = create<AppState>((set, get) => {
       await get().loadCounts();
     },
     toast: (message, undoId = null, tone = "info") => {
+      const existing = get().toasts;
+      const last = existing[existing.length - 1];
+      if (last && last.open && last.message === message && last.tone === tone && last.undoId === null && undoId === null) return;
       const id = ++toastSeq;
-      set({ toasts: [...get().toasts.slice(-3), { id, message, undoId, tone }] });
-      window.setTimeout(() => get().dismissToast(id), undoId ? 7000 : 4200);
+      const next = [...existing, { id, message, undoId, tone, open: true }];
+      const cutoff = next.length - 3;
+      set({ toasts: next.map((item, index) => (index < cutoff && item.open ? { ...item, open: false } : item)) });
     },
     dismissToast: (id) => set({ toasts: get().toasts.filter((t) => t.id !== id) }),
     currentSelection: () => {

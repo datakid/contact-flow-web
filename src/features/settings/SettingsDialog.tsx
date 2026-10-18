@@ -1,5 +1,6 @@
 import { getCountries, getCountryCallingCode } from "libphonenumber-js/max";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { loadSampleContacts } from "../../app/actions";
 import { db } from "../../app/db";
 import { useT } from "../../app/i18n";
 import { useApp } from "../../app/store";
@@ -52,6 +53,9 @@ export function SettingsDialog() {
   const setTheme = useApp((s) => s.setTheme);
   const setLayout = useApp((s) => s.setLayout);
   const [confirmClear, setConfirmClear] = useState(false);
+  useEffect(() => {
+    if (open) setConfirmClear(false);
+  }, [open]);
   const countries = useMemo(() => {
     const names = new Intl.DisplayNames([lang === "ar" ? "ar" : "en"], { type: "region" });
     return getCountries()
@@ -59,40 +63,39 @@ export function SettingsDialog() {
       .sort((a, b) => a.label.localeCompare(b.label, lang));
   }, [lang]);
 
-  const loadSample = async (): Promise<void> => {
-    const state = useApp.getState();
-    const sample = await db.loadSample();
-    await state.refresh();
-    state.toast(t("imported", sample.count), sample.historyId);
-  };
-
   const clearAll = async (): Promise<void> => {
     const state = useApp.getState();
-    await db.wipe();
-    state.clearSelection();
-    state.setFocused(null);
-    await state.refresh();
-    setConfirmClear(false);
-    state.closeDialog();
+    try {
+      await db.wipe();
+      state.clearSelection();
+      state.setFocused(null);
+      state.setFilter({ kind: "all" });
+      state.setSearch("");
+      await state.refresh();
+      setConfirmClear(false);
+      state.closeDialog();
+    } catch (error) {
+      state.toast(error instanceof Error ? error.message : String(error), null, "error");
+    }
   };
 
   return (
     <Modal open={open} onOpenChange={(o) => !o && close()} title={t("settings")}>
       <div className="px-5 py-2">
         <Row label={t("language")}>
-          <Segmented value={lang} onChange={setLang} options={[{ value: "en", label: "English" }, { value: "ar", label: "العربية" }]} />
+          <Segmented label={t("language")} value={lang} onChange={setLang} options={[{ value: "en", label: "English" }, { value: "ar", label: "العربية" }]} />
         </Row>
         <Row label={t("theme")}>
-          <Segmented<ThemeMode> value={theme} onChange={setTheme} options={[{ value: "system", label: t("themeSystem") }, { value: "light", label: t("themeLight") }, { value: "dark", label: t("themeDark") }]} />
+          <Segmented<ThemeMode> label={t("theme")} value={theme} onChange={setTheme} options={[{ value: "system", label: t("themeSystem") }, { value: "light", label: t("themeLight") }, { value: "dark", label: t("themeDark") }]} />
         </Row>
         <Row label={t("layout")}>
-          <Segmented<LayoutMode> value={layout} onChange={setLayout} options={[{ value: "auto", label: t("layout_auto") }, { value: "compact", label: t("layout_narrow") }, { value: "desktop", label: t("layout_wide") }]} />
+          <Segmented<LayoutMode> label={t("layout")} value={layout} onChange={setLayout} options={[{ value: "auto", label: t("layout_auto") }, { value: "compact", label: t("layout_narrow") }, { value: "desktop", label: t("layout_wide") }]} />
         </Row>
         <Row label={t("countryCode")}>
           <Select value={country} onValueChange={(c) => { void db.setDefaultCountry(c); useApp.setState({ defaultCountry: c }); }} options={countries} label={t("countryCode")} className="w-64" />
         </Row>
         <Row label={t("loadSample")}>
-          <Button size="sm" onClick={() => void loadSample()}>
+          <Button size="sm" onClick={() => void loadSampleContacts()}>
             {t("loadSample")}
           </Button>
         </Row>

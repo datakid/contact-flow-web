@@ -3,7 +3,7 @@ import { db } from "../../app/db";
 import { formatNumber, useT } from "../../app/i18n";
 import { useApp } from "../../app/store";
 import type { HistoryEntry } from "../../core/db/library";
-import { Button, Modal, Spinner } from "../../ui/primitives";
+import { Button, DelayedSpinner, Modal } from "../../ui/primitives";
 
 const PAGE = 50;
 
@@ -65,11 +65,11 @@ export function HistoryDialog() {
             </li>
           ))}
         </ul>
-        {loading ? <div className="grid place-items-center p-4"><Spinner /></div> : null}
+        {loading ? <div className="grid place-items-center p-4"><DelayedSpinner /></div> : null}
         {entries.length < total && !loading ? (
           <div className="p-2 text-center">
             <Button size="sm" variant="ghost" onClick={() => void load(entries.length, false)}>
-              {t("next")}
+              {t("loadMore")}
             </Button>
           </div>
         ) : null}

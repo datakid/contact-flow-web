@@ -54,12 +54,13 @@ export function InlineText({ value, onSave, placeholder, className, inputClassNa
     finished.current = true;
     setEditing(false);
     onEditingChange?.(false);
-    if (save && draft !== value) onSave(draft);
+    const out = multiline ? draft : draft.trim();
+    if (save && out !== value) onSave(out);
   }
 
   if (!editing) {
     return (
-      <button type="button" dir={dir} aria-label={value ? `${ariaLabel ?? placeholder}: ${value}` : ariaLabel ?? placeholder} onClick={begin} className={cx("block w-full rounded-lg px-2 py-1 text-start hover:bg-sunk", !value && "text-faint", className)}>
+      <button type="button" dir={dir} aria-label={value ? `${ariaLabel ?? placeholder}: ${value}` : ariaLabel ?? placeholder} onClick={begin} className={cx("block w-full rounded-lg border border-transparent px-2 py-1 text-start hover:bg-sunk", !value && "text-faint", className)}>
         <span className={multiline ? "whitespace-pre-wrap break-words" : "break-words"}>{value || placeholder}</span>
       </button>
     );
@@ -89,6 +90,7 @@ export function InlineText({ value, onSave, placeholder, className, inputClassNa
           e.target.style.height = `${e.target.scrollHeight}px`;
         }}
         onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing || e.keyCode === 229) return;
           if (e.key === "Escape") {
             cancelled.current = true;
             finish(false);
@@ -105,6 +107,7 @@ export function InlineText({ value, onSave, placeholder, className, inputClassNa
       {...shared}
       onChange={(e) => setDraft(e.target.value)}
       onKeyDown={(e) => {
+        if (e.nativeEvent.isComposing || e.keyCode === 229) return;
         if (e.key === "Enter") finish(true);
         else if (e.key === "Escape") {
           cancelled.current = true;

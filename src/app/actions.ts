@@ -1,4 +1,5 @@
 import { db } from "./db";
+import { isCompactNow } from "./hooks";
 import { translate } from "./i18n";
 import { useApp } from "./store";
 import type { Selection } from "../core/db/library";
@@ -6,6 +7,7 @@ import { digitsOf, styleNumber } from "../core/phone";
 import { vcardOf } from "../core/formats/vcard";
 import type { Contact, ContactInput } from "../core/types";
 import { emptyContactInput } from "../core/types";
+import { getListController } from "../features/library/controller";
 
 function lang() {
   return useApp.getState().lang;
@@ -25,13 +27,15 @@ export function contactToInput(contact: Contact): ContactInput {
   return { ...contact };
 }
 
-export async function saveContactInput(input: ContactInput, undoable = true): Promise<Contact | null> {
+export async function saveContactInput(input: ContactInput, opts: { undoable?: boolean; toast?: boolean } = {}): Promise<Contact | null> {
+  const undoable = opts.undoable ?? true;
+  const showToast = opts.toast ?? true;
   const state = useApp.getState();
   const isNew = !input.id;
   try {
     const result = await db.saveContact(input, input.name || translate(state.lang, "newContact"));
     await state.refresh();
-    state.toast(translate(state.lang, "savedToast"), undoable ? result.historyId : null);
+    if (showToast) state.toast(translate(state.lang, "savedToast"), undoable ? result.historyId : null);
     if (isNew) state.setFocused(result.contact.id);
     return result.contact;
   } catch (error) {
@@ -88,12 +92,43 @@ export async function removeFromGroup(selection: Selection, groupId: number): Pr
 
 export async function deleteSelection(selection: Selection): Promise<void> {
   const state = useApp.getState();
+  const controller = getListController();
+  let neighborId: string | null = null;
+  if (selection.kind === "ids" && state.focusedId && selection.ids.includes(state.focusedId) && controller) {
+    const doomed = new Set(selection.ids);
+    const at = controller.indexOfId(state.focusedId);
+    if (at >= 0) {
+      const total = controller.total();
+      for (let i = at + 1; i < Math.min(total, at + 201) && neighborId === null; i++) {
+        const row = controller.getRow(i);
+        if (row && !doomed.has(row.id)) neighborId = row.id;
+      }
+      for (let i = at - 1; i >= Math.max(0, at - 200) && neighborId === null; i--) {
+        const row = controller.getRow(i);
+        if (row && !doomed.has(row.id)) neighborId = row.id;
+      }
+    }
+  }
   const result = await db.deleteContacts(selection, translate(state.lang, "delete"));
   state.clearSelection();
-  if (selection.kind === "ids" && state.focusedId && selection.ids.includes(state.focusedId)) state.setFocused(null);
-  if (selection.kind === "filter") state.setFocused(null);
+  const focusedGone = selection.kind === "filter" || (selection.kind === "ids" && state.focusedId !== null && selection.ids.includes(state.focusedId));
+  if (focusedGone) {
+    if (isCompactNow() || neighborId === null) {
+      state.setMobileDetail(false);
+      state.setFocused(null);
+    } else {
+      state.setFocused(neighborId);
+    }
+  }
   await state.refresh();
   state.toast(translate(state.lang, "deleted", result.count), result.historyId);
+}
+
+export async function loadSampleContacts(): Promise<void> {
+  const state = useApp.getState();
+  const sample = await db.loadSample();
+  await state.refresh();
+  state.toast(translate(state.lang, "imported", sample.count), sample.historyId);
 }
 
 export async function createGroupNamed(name: string): Promise<number | null> {

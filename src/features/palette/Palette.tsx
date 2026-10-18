@@ -5,7 +5,8 @@ import { undoLast } from "../../app/actions";
 import { db, nextRequestId } from "../../app/db";
 import { useDebounced } from "../../app/hooks";
 import { useT } from "../../app/i18n";
-import { useApp } from "../../app/store";
+import { EMPTY_GROUPS, useApp } from "../../app/store";
+import { fold } from "../../core/fold";
 import type { ContactRow } from "../../core/types";
 import { Avatar, cx } from "../../ui/primitives";
 
@@ -20,12 +21,13 @@ export function Palette() {
   const t = useT();
   const open = useApp((s) => s.dialog === "palette");
   const close = useApp((s) => s.closeDialog);
-  const groups = useApp((s) => s.counts?.groups ?? []);
+  const groups = useApp((s) => s.counts?.groups ?? EMPTY_GROUPS);
   const [query, setQuery] = useState("");
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [people, setPeople] = useState<ContactRow[]>([]);
   const debounced = useDebounced(query, 120);
   const listRef = useRef<HTMLDivElement>(null);
+  const userMovedRef = useRef(false);
 
   useEffect(() => {
     if (open) {
@@ -82,8 +84,8 @@ export function Palette() {
   }, [t, groups]);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const base = q ? commands.filter((c) => c.label.toLowerCase().includes(q) || c.group.toLowerCase().includes(q)) : commands;
+    const q = fold(query.trim());
+    const base = q ? commands.filter((c) => fold(c.label).includes(q) || fold(c.group).includes(q)) : commands;
     const contactCommands: Command[] = people.map((p) => ({ key: `p${p.id}`, group: t("cmdContacts"), label: p.name || p.primaryPhone, run: () => { close(); useApp.getState().setFocused(p.id); } }));
     return [...contactCommands, ...base];
   }, [commands, people, query, close, t]);
@@ -92,15 +94,22 @@ export function Palette() {
   const activeItemKey = filtered[activeIndex]?.key ?? null;
 
   useEffect(() => {
+    userMovedRef.current = false;
     setActiveKey(filtered[0]?.key ?? null);
   }, [query]);
+
+  useEffect(() => {
+    if (!userMovedRef.current) setActiveKey(filtered[0]?.key ?? null);
+  }, [people]);
 
   useEffect(() => {
     if (activeItemKey) document.getElementById(`cmd-${activeItemKey}`)?.scrollIntoView({ block: "nearest" });
   }, [activeItemKey]);
 
   const moveActive = (delta: number): void => {
-    const next = Math.min(filtered.length - 1, Math.max(0, activeIndex + delta));
+    if (filtered.length === 0) return;
+    userMovedRef.current = true;
+    const next = (activeIndex + delta + filtered.length) % filtered.length;
     setActiveKey(filtered[next]?.key ?? null);
   };
 

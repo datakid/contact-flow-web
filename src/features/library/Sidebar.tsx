@@ -5,7 +5,7 @@ import { db } from "../../app/db";
 import { formatNumber, useT } from "../../app/i18n";
 import { useApp } from "../../app/store";
 import type { GroupInfo, LibraryFilter } from "../../core/types";
-import { Badge, ContextMenu, IconButton, cx } from "../../ui/primitives";
+import { Badge, ContextMenu, IconButton, Spinner, cx } from "../../ui/primitives";
 import type { MenuEntry } from "../../ui/primitives";
 
 const SWATCHES = ["#6366f1", "#14b8a6", "#f59e0b", "#ec4899", "#22c55e", "#0ea5e9", "#ef4444", "#a855f7"];
@@ -18,6 +18,7 @@ interface ItemProps {
   icon: React.ReactNode;
   label: string;
   count?: number | string;
+  pending?: boolean;
   active: boolean;
   collapsed: boolean;
   onClick: () => void;
@@ -25,7 +26,8 @@ interface ItemProps {
   accent?: boolean;
 }
 
-function NavItem({ icon, label, count, active, collapsed, onClick, onDropIds }: ItemProps) {
+function NavItem({ icon, label, count, pending, active, collapsed, onClick, onDropIds }: ItemProps) {
+  const lang = useApp((s) => s.lang);
   const [over, setOver] = useState(false);
   return (
     <button
@@ -39,7 +41,9 @@ function NavItem({ icon, label, count, active, collapsed, onClick, onDropIds }: 
           setOver(true);
         }
       }}
-      onDragLeave={() => setOver(false)}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false);
+      }}
       onDrop={(e) => {
         setOver(false);
         const raw = e.dataTransfer.getData("application/x-cf-ids");
@@ -52,7 +56,15 @@ function NavItem({ icon, label, count, active, collapsed, onClick, onDropIds }: 
     >
       <span className="grid size-5 shrink-0 place-items-center">{icon}</span>
       {collapsed ? null : <span className="min-w-0 flex-1 truncate text-start">{label}</span>}
-      {collapsed || count === undefined ? null : typeof count === "number" ? <span className="text-xs font-semibold tabular-nums text-muted">{count.toLocaleString()}</span> : <Badge tone="accent">{count}</Badge>}
+      {collapsed ? null : pending ? (
+        <Badge tone="accent">
+          <Spinner size={10} />
+        </Badge>
+      ) : count === undefined ? null : typeof count === "number" ? (
+        <span className="text-xs font-semibold tabular-nums text-muted">{formatNumber(lang, count)}</span>
+      ) : (
+        <Badge tone="accent">{count}</Badge>
+      )}
     </button>
   );
 }
@@ -62,13 +74,25 @@ function GroupItem({ group, active, collapsed }: { group: GroupInfo; active: boo
   const state = useApp;
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(group.name);
+  const settledRef = useRef(false);
+  const commitRename = (): void => {
+    if (settledRef.current) return;
+    settledRef.current = true;
+    setRenaming(false);
+    const next = draft.trim();
+    if (next && next !== group.name) void db.renameGroup(group.id, next).then(async (ok) => { if (ok) await state.getState().refresh(); });
+  };
+  const cancelRename = (): void => {
+    settledRef.current = true;
+    setRenaming(false);
+  };
   const entries = (): MenuEntry[] => [
-    { key: "rename", label: t("renameGroup"), onSelect: () => { setDraft(group.name); setRenaming(true); } },
+    { key: "rename", label: t("renameGroup"), onSelect: () => { settledRef.current = false; setDraft(group.name); setRenaming(true); } },
     { key: "color", label: t("changeColor"), children: SWATCHES.map((c) => ({ key: c, label: c, icon: <span className="size-3 rounded-full" style={{ background: c }} />, onSelect: () => void db.recolorGroup(group.id, c).then(() => state.getState().refresh()) })) },
     { key: "members", label: t("selectMembers"), onSelect: () => { state.getState().setFilter({ kind: "group", groupId: group.id }); state.getState().selectAllMatching(); } },
     { key: "export", label: t("exportGroup"), onSelect: () => state.getState().openDialog("export", { kind: "filter", filter: { kind: "group", groupId: group.id }, search: "", exclude: [] }) },
     { key: "sep", label: "", separator: true },
-    { key: "delete", label: t("deleteGroup"), danger: true, onSelect: () => void db.deleteGroup(group.id).then(async (result) => { const s = state.getState(); if (s.filter.kind === "group" && s.filter.groupId === group.id) s.setFilter({ kind: "all" }); await s.refresh(); s.toast(t("deleted", 1), result.historyId); }) }
+    { key: "delete", label: t("deleteGroup"), danger: true, onSelect: () => void db.deleteGroup(group.id).then(async (result) => { const s = state.getState(); if (s.filter.kind === "group" && s.filter.groupId === group.id) s.setFilter({ kind: "all" }); await s.refresh(); s.toast(t("groupDeleted"), result.historyId); }) }
   ];
   if (renaming) {
     return (
@@ -76,13 +100,10 @@ function GroupItem({ group, active, collapsed }: { group: GroupInfo; active: boo
         className="px-1"
         onSubmit={(e) => {
           e.preventDefault();
-          void db.renameGroup(group.id, draft).then(async (ok) => {
-            setRenaming(false);
-            if (ok) await state.getState().refresh();
-          });
+          commitRename();
         }}
       >
-        <input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={() => setRenaming(false)} onKeyDown={(e) => e.key === "Escape" && setRenaming(false)} className="h-9 w-full rounded-xl border border-accent bg-card px-2.5 text-sm outline-none" />
+        <input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={commitRename} onKeyDown={(e) => e.key === "Escape" && cancelRename()} className="h-9 w-full rounded-xl border border-accent bg-card px-2.5 text-sm outline-none" />
       </form>
     );
   }
@@ -106,6 +127,15 @@ export function Sidebar({ collapsed, drawer }: { collapsed: boolean; drawer?: bo
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const addSettledRef = useRef(false);
+  const commitAdd = (): void => {
+    if (addSettledRef.current) return;
+    addSettledRef.current = true;
+    const value = name.trim();
+    setAdding(false);
+    setName("");
+    if (value) void createGroupNamed(value);
+  };
   const n = (v: number | undefined): number => v ?? 0;
   const show = collapsed && !drawer;
   const go = (f: LibraryFilter) => () => setFilter(f);
@@ -123,7 +153,7 @@ export function Sidebar({ collapsed, drawer }: { collapsed: boolean; drawer?: bo
           <NavItem icon={<Pencil size={16} />} label={t("recentlyEdited")} count={n(counts?.recentlyEdited)} active={sameFilter(filter, { kind: "recentlyEdited" })} collapsed={show} onClick={go({ kind: "recentlyEdited" })} />
           <NavItem icon={<Phone size={16} />} label={t("noNumber")} count={n(counts?.noNumber)} active={sameFilter(filter, { kind: "noNumber" })} collapsed={show} onClick={go({ kind: "noNumber" })} />
           <NavItem icon={<UserX size={16} />} label={t("noName")} count={n(counts?.noName)} active={sameFilter(filter, { kind: "noName" })} collapsed={show} onClick={go({ kind: "noName" })} />
-          <NavItem icon={<Copy size={16} />} label={t("duplicates")} count={dup < 0 ? "…" : dup} active={sameFilter(filter, { kind: "duplicates" })} collapsed={show} onClick={() => openDialog("duplicates")} />
+          <NavItem icon={<Copy size={16} />} label={t("duplicates")} count={dup < 0 ? undefined : dup} pending={dup < 0} active={sameFilter(filter, { kind: "duplicates" })} collapsed={show} onClick={() => openDialog("duplicates")} />
         </div>
         <div className="space-y-0.5">
           {!show ? <div className="px-2.5 pb-1 pt-2 text-[11px] font-bold uppercase tracking-wider text-muted rtl:tracking-normal">{t("groups")}</div> : null}
@@ -135,16 +165,13 @@ export function Sidebar({ collapsed, drawer }: { collapsed: boolean; drawer?: bo
               className="px-1"
               onSubmit={(e) => {
                 e.preventDefault();
-                const value = name.trim();
-                setAdding(false);
-                setName("");
-                if (value) void createGroupNamed(value);
+                commitAdd();
               }}
             >
-              <input ref={inputRef} autoFocus value={name} onChange={(e) => setName(e.target.value)} onBlur={() => { setAdding(false); setName(""); }} placeholder={t("groupNamePh")} className="h-9 w-full rounded-xl border border-accent bg-card px-2.5 text-sm outline-none" />
+              <input ref={inputRef} autoFocus value={name} onChange={(e) => setName(e.target.value)} onBlur={commitAdd} onKeyDown={(e) => { if (e.key === "Escape") { addSettledRef.current = true; setAdding(false); setName(""); } }} placeholder={t("groupNamePh")} className="h-9 w-full rounded-xl border border-accent bg-card px-2.5 text-sm outline-none" />
             </form>
           ) : (
-            <NavItem icon={<Plus size={16} />} label={t("newGroup")} active={false} collapsed={show} onClick={() => setAdding(true)} />
+            <NavItem icon={<Plus size={16} />} label={t("newGroup")} active={false} collapsed={show} onClick={() => { addSettledRef.current = false; setAdding(true); }} />
           )}
         </div>
         <div className="space-y-0.5">

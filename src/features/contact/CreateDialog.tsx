@@ -1,8 +1,9 @@
 import { Plus, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { saveContactInput } from "../../app/actions";
 import { useT } from "../../app/i18n";
 import { useApp } from "../../app/store";
+import { splitTokens } from "../../core/splitTokens";
 import type { ContactInput } from "../../core/types";
 import { emptyContactInput } from "../../core/types";
 import { Button, Field, Modal, inputClass } from "../../ui/primitives";
@@ -13,29 +14,61 @@ export function CreateDialog() {
   const close = useApp((s) => s.closeDialog);
   const [draft, setDraft] = useState<ContactInput>(emptyContactInput());
   const [groups, setGroups] = useState("");
+  const [aliasesText, setAliasesText] = useState("");
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const rowIds = useRef<Record<"phones" | "emails", string[]>>({ phones: [], emails: [] });
 
   useEffect(() => {
     if (open) {
+      rowIds.current = { phones: [], emails: [] };
       setDraft(emptyContactInput());
       setGroups("");
+      setAliasesText("");
       setError("");
+      savingRef.current = false;
+      setSaving(false);
     }
   }, [open]);
 
+  const padIds = (key: "phones" | "emails", length: number): string[] => {
+    const ids = rowIds.current[key];
+    while (ids.length < length) ids.push(crypto.randomUUID());
+    return ids;
+  };
+
   const setList = (key: "phones" | "emails", index: number, value: string): void => setDraft((d) => ({ ...d, [key]: d[key].map((x, i) => (i === index ? { ...x, value } : x)) }));
-  const addRow = (key: "phones" | "emails"): void => setDraft((d) => ({ ...d, [key]: [...d[key], { value: "", label: key === "phones" ? "mobile" : "work" }] }));
-  const removeRow = (key: "phones" | "emails", index: number): void => setDraft((d) => ({ ...d, [key]: d[key].filter((_, i) => i !== index) }));
+  const addRow = (key: "phones" | "emails"): void => {
+    padIds(key, draft[key].length).push(crypto.randomUUID());
+    setDraft((d) => ({ ...d, [key]: [...d[key], { value: "", label: key === "phones" ? "mobile" : "work" }] }));
+  };
+  const removeRow = (key: "phones" | "emails", index: number): void => {
+    padIds(key, draft[key].length).splice(index, 1);
+    setDraft((d) => ({ ...d, [key]: d[key].filter((_, i) => i !== index) }));
+  };
 
   const save = async (): Promise<void> => {
-    const input: ContactInput = { ...draft, groups: groups.split(/[,،]/).map((g) => g.trim()).filter(Boolean) };
+    if (savingRef.current) return;
+    const input: ContactInput = {
+      ...draft,
+      aliases: splitTokens(aliasesText),
+      groups: splitTokens(groups)
+    };
     const hasContent = input.name.trim() || input.phones.some((p) => p.value.trim()) || input.emails.some((e) => e.value.trim());
     if (!hasContent) {
       setError(t("nameRequired"));
       return;
     }
-    const saved = await saveContactInput(input);
-    if (saved) close();
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      const saved = await saveContactInput(input);
+      if (saved) close();
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   };
 
   return (
@@ -48,7 +81,7 @@ export function CreateDialog() {
           <Button variant="ghost" onClick={close}>
             {t("cancel")}
           </Button>
-          <Button variant="primary" onClick={() => void save()}>
+          <Button variant="primary" disabled={saving} onClick={() => void save()}>
             {t("save")}
           </Button>
         </>
@@ -71,7 +104,7 @@ export function CreateDialog() {
           <div key={key} className="space-y-2">
             <div className="text-xs font-semibold text-ink2">{key === "phones" ? t("phones") : t("emails")}</div>
             {draft[key].map((item, index) => (
-              <div key={index} className="flex gap-2">
+              <div key={padIds(key, draft[key].length)[index]} className="flex gap-2">
                 <input dir="ltr" inputMode={key === "phones" ? "tel" : "email"} className={inputClass} value={item.value} onChange={(e) => setList(key, index, e.target.value)} aria-label={key === "phones" ? t("phone") : t("email")} />
                 <Button variant="ghost" size="sm" onClick={() => removeRow(key, index)} aria-label={t("delete")}>
                   <X size={14} />
@@ -84,7 +117,7 @@ export function CreateDialog() {
           </div>
         ))}
         <Field label={t("aliases")} hint={t("aliasHint")}>
-          <input className={inputClass} value={draft.aliases.join(", ")} onChange={(e) => setDraft({ ...draft, aliases: e.target.value.split(/[,،]/).map((a) => a.trim()).filter(Boolean) })} />
+          <input className={inputClass} value={aliasesText} onChange={(e) => setAliasesText(e.target.value)} />
         </Field>
         <Field label={t("groups")} hint={t("groupsHint")}>
           <input className={inputClass} value={groups} onChange={(e) => setGroups(e.target.value)} />

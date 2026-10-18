@@ -117,5 +117,14 @@ export const extraEn = {
   scViews: "List and Table view",
   scEditField: "Edit focused field",
   rangeTooLarge: "Ranges are limited to 1,000 rows. Use Select all matching for more.",
-  close2: "Close"
+  close2: "Close",
+  saving: "Saving…",
+  groupDeleted: "Group deleted",
+  showInList: "Show in list",
+  loadMore: "Load more",
+  before: "Before",
+  after: "After",
+  fileTooLarge: (name: string): string => `${name} is larger than 1 GB and was skipped`,
+  emptyCtaSample: "Load sample contacts",
+  showAll: "Show all contacts"
 };

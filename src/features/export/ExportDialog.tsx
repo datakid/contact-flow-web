@@ -40,6 +40,8 @@ export function ExportDialog() {
     if (!open || !target) return;
     setError("");
     setProgress(null);
+    setSample([]);
+    setTotal(0);
     void db.readPage(target, 0, 4).then((page) => {
       setSample(page.contacts);
       setTotal(page.total);
@@ -85,22 +87,28 @@ export function ExportDialog() {
       const name = `${fileName.trim() || "contacts"}.${outcome.ext}`;
       const file = new File([outcome.blob], name, { type: outcome.blob.type });
       const state = useApp.getState();
-      if (/Android|iPhone|iPad/i.test(navigator.userAgent) && navigator.canShare?.({ files: [file] })) {
-        try {
-          await navigator.share({ files: [file], title: name });
-        } catch {
-          setProgress(null);
-          return;
-        }
-      } else {
-        const url = URL.createObjectURL(file);
+      const download = (f: File): void => {
+        const url = URL.createObjectURL(f);
         const link = document.createElement("a");
         link.href = url;
-        link.download = name;
+        link.download = f.name;
         document.body.appendChild(link);
         link.click();
         link.remove();
         window.setTimeout(() => URL.revokeObjectURL(url), 4000);
+      };
+      if (/Android|iPhone|iPad/i.test(navigator.userAgent) && navigator.canShare?.({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file], title: name });
+        } catch (shareError) {
+          if (shareError instanceof DOMException && shareError.name === "AbortError") {
+            setProgress(null);
+            return;
+          }
+          download(file);
+        }
+      } else {
+        download(file);
       }
       state.toast(`${t("exported")} · ${formatNumber(lang, outcome.count)}`);
       setProgress(null);
@@ -120,7 +128,11 @@ export function ExportDialog() {
     setProgress(null);
   };
 
-  const busy = progress !== null;
+  const liveBusy = progress !== null;
+  const lastShown = useRef({ busy: false, total: 0 });
+  if (open) lastShown.current = { busy: liveBusy, total };
+  const busy = open ? liveBusy : lastShown.current.busy;
+  const shownTotal = open ? total : lastShown.current.total;
   const check = (key: keyof ExportOptions, label: string) => (
     <label key={key} className="flex items-center gap-2 text-sm">
       <Checkbox checked={Boolean(options[key])} onCheckedChange={(v) => set(key, v as never)} label={label} />
@@ -138,7 +150,7 @@ export function ExportDialog() {
         }
       }}
       title={t("exportTitle")}
-      description={t("nContacts", total).replace(/^[\d,.\s]+/, `${formatNumber(lang, total)} `)}
+      description={t("nContacts", shownTotal).replace(/^[\d,.\s]+/, `${formatNumber(lang, shownTotal)} `)}
       footer={
         busy ? (
           <Button variant="outline" onClick={cancel}>

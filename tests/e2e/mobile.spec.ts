@@ -73,3 +73,23 @@ test("share as vCard does nothing extra when the user cancels the share sheet", 
   await page.waitForTimeout(800);
   expect(downloaded).toBe(false);
 });
+
+test("tapping the end of a row opens the detail and never stars the contact", async ({ page }) => {
+  const row = page.getByRole("row", { name: /Amelia Hart/ });
+  const stars = row.locator('svg[aria-label="Starred"]');
+  const before = await stars.count();
+  const box = await row.boundingBox();
+  if (!box) throw new Error("row has no box");
+  const rtl = (await page.evaluate(() => document.documentElement.dir)) === "rtl";
+  const x = rtl ? box.x + 20 : box.x + box.width - 20;
+  const y = box.y + box.height / 2;
+  const hit = await page.evaluate(([px, py]) => {
+    const el = document.elementFromPoint(px as number, py as number);
+    return el ? el.closest("button") !== null : false;
+  }, [x, y]);
+  expect(hit).toBe(false);
+  await page.touchscreen.tap(x, y);
+  await expect(page.getByRole("complementary", { name: "Amelia Hart" })).toBeVisible();
+  await page.getByRole("button", { name: "Back" }).click();
+  await expect(stars).toHaveCount(before);
+});

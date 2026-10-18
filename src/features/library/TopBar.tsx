@@ -1,5 +1,6 @@
 import { Download, Menu, Moon, Plus, Search, Sun, Upload, X } from "lucide-react";
 import { useEffect, useRef, useSyncExternalStore } from "react";
+import { flushSync } from "react-dom";
 import { useCompact } from "../../app/hooks";
 import { useT } from "../../app/i18n";
 import { useApp } from "../../app/store";
@@ -33,6 +34,7 @@ export function TopBar() {
   const setMobileSidebar = useApp((s) => s.setMobileSidebar);
   const resolved = useResolvedTheme();
   const inputRef = useRef<HTMLInputElement>(null);
+  const mac = navigator.platform.includes("Mac");
 
   useEffect(() => {
     const focus = (): void => {
@@ -67,6 +69,11 @@ export function TopBar() {
             aria-label={t("searchPh")}
             className="h-10 w-full rounded-xl border border-line bg-sunk ps-9 pe-9 text-sm placeholder:text-faint focus:border-accent focus:bg-card focus:outline-none [&::-webkit-search-cancel-button]:hidden"
           />
+          {!compact && !search ? (
+            <kbd aria-hidden="true" className="pointer-events-none absolute inset-y-0 end-3 my-auto hidden h-5 items-center rounded-md border border-line bg-card px-1.5 font-sans text-[10px] font-semibold text-muted sm:inline-flex">
+              {mac ? "⌘K" : "Ctrl K"}
+            </kbd>
+          ) : null}
           {search ? (
             <button type="button" aria-label={t("deselect")} onClick={() => setSearch("")} className="absolute inset-y-0 end-2 my-auto grid size-6 place-items-center rounded-full text-muted hover:bg-line">
               <X size={14} />
@@ -92,7 +99,15 @@ export function TopBar() {
         <IconButton label={t("newContact")} onClick={() => openDialog("create")} className="border border-line bg-card">
           <Plus size={17} />
         </IconButton>
-        <IconButton label={t("toggleTheme")} onClick={() => setTheme(resolved === "dark" ? "light" : "dark")}>
+        <IconButton label={t("toggleTheme")} onClick={() => {
+            const next = resolved === "dark" ? "light" : "dark";
+            const apply = (): void => {
+              flushSync(() => setTheme(next));
+              document.documentElement.dataset.theme = next;
+            };
+            if (!("startViewTransition" in document) || window.matchMedia("(prefers-reduced-motion: reduce)").matches) apply();
+            else (document as Document & { startViewTransition: (cb: () => void) => unknown }).startViewTransition(apply);
+          }}>
           {resolved === "dark" ? <Sun size={17} /> : <Moon size={17} />}
         </IconButton>
       </div>

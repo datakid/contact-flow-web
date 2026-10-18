@@ -119,5 +119,14 @@ export const extraAr: typeof extraEn = {
   scViews: "عرض القائمة والجدول",
   scEditField: "تعديل الحقل المحدد",
   rangeTooLarge: "النطاق محدود بـ 1,000 صف. استخدم تحديد كل المطابق للمزيد.",
-  close2: "إغلاق"
+  close2: "إغلاق",
+  saving: "جارٍ الحفظ…",
+  groupDeleted: "تم حذف المجموعة",
+  showInList: "عرض في القائمة",
+  loadMore: "تحميل المزيد",
+  before: "قبل",
+  after: "بعد",
+  fileTooLarge: (name: string): string => `تم تخطي ${name} لأن حجمه يتجاوز 1 غيغابايت`,
+  emptyCtaSample: "تحميل جهات اتصال تجريبية",
+  showAll: "عرض كل جهات الاتصال"
 };

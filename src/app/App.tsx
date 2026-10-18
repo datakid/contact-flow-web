@@ -1,5 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { Suspense, lazy, useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import { CreateDialog } from "../features/contact/CreateDialog";
 import { DetailPane } from "../features/contact/DetailPane";
 import { MiddlePane } from "../features/library/MiddlePane";
@@ -7,11 +8,12 @@ import { ConfirmDelete, PersistBanner, Toasts } from "../features/library/Overla
 import { Sidebar } from "../features/library/Sidebar";
 import { TopBar, useResolvedTheme } from "../features/library/TopBar";
 import { Palette } from "../features/palette/Palette";
-import { Button, Spinner, TooltipProvider } from "../ui/primitives";
-import { useCompact } from "./hooks";
+import { Button, DelayedSpinner, TooltipProvider } from "../ui/primitives";
+import { useCompact, useSwipeBack } from "./hooks";
 import { useT } from "./i18n";
 import { useGlobalShortcuts } from "./shortcuts";
 import { useApp } from "./store";
+import type { DialogName } from "./store";
 
 const ImportWizard = lazy(() => import("../features/import/ImportWizard").then((m) => ({ default: m.ImportWizard })));
 const ExportDialog = lazy(() => import("../features/export/ExportDialog").then((m) => ({ default: m.ExportDialog })));
@@ -23,32 +25,78 @@ const SettingsDialog = lazy(() => import("../features/settings/SettingsDialog").
 const SelfTestDialog = lazy(() => import("../features/settings/SelfTestDialog").then((m) => ({ default: m.SelfTestDialog })));
 const ShortcutsDialog = lazy(() => import("../features/settings/ShortcutsDialog").then((m) => ({ default: m.ShortcutsDialog })));
 
-function ResizeHandle({ onDrag, label }: { onDrag: (delta: number) => void; label: string }) {
-  const [active, setActive] = useState(false);
+interface ResizeHandleProps {
+  label: string;
+  getValue: () => number;
+  apply: (px: number) => void;
+  commit: (px: number) => void;
+  min: number;
+  max: number | (() => number);
+  invert?: boolean;
+}
+
+function ResizeHandle({ label, getValue, apply, commit, min, max, invert }: ResizeHandleProps) {
+  const drag = useRef<{ startX: number; startValue: number; latest: number; frame: number | null } | null>(null);
+  const limit = (px: number): number => {
+    const top = typeof max === "function" ? max() : max;
+    return Math.min(Math.max(min, top), Math.max(min, px));
+  };
+  const finish = (el: HTMLElement): void => {
+    const current = drag.current;
+    if (!current) return;
+    drag.current = null;
+    if (current.frame !== null) cancelAnimationFrame(current.frame);
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    delete el.dataset.active;
+    el.closest("[data-layout-root]")?.removeAttribute("data-resizing");
+    apply(current.latest);
+    commit(current.latest);
+  };
+  const direction = (): number => (document.documentElement.dir === "rtl" ? -1 : 1) * (invert ? -1 : 1);
+  const topNow = typeof max === "function" ? max() : max;
   return (
     <div
       role="separator"
       aria-orientation="vertical"
       aria-label={label}
+      aria-valuenow={Math.round(getValue())}
+      aria-valuemin={min}
+      aria-valuemax={Math.max(min, Math.round(topNow))}
+      tabIndex={0}
       className="resize-handle"
-      data-active={active}
       onPointerDown={(e) => {
         e.currentTarget.setPointerCapture(e.pointerId);
-        setActive(true);
-        let last = e.clientX;
-        const rtl = document.documentElement.dir === "rtl";
-        const move = (ev: PointerEvent): void => {
-          const delta = (ev.clientX - last) * (rtl ? -1 : 1);
-          last = ev.clientX;
-          onDrag(delta);
-        };
-        const up = (): void => {
-          setActive(false);
-          window.removeEventListener("pointermove", move);
-          window.removeEventListener("pointerup", up);
-        };
-        window.addEventListener("pointermove", move);
-        window.addEventListener("pointerup", up);
+        const startValue = getValue();
+        drag.current = { startX: e.clientX, startValue, latest: startValue, frame: null };
+        document.body.style.cursor = "col-resize";
+        document.body.style.userSelect = "none";
+        e.currentTarget.dataset.active = "true";
+        e.currentTarget.closest("[data-layout-root]")?.setAttribute("data-resizing", "true");
+      }}
+      onPointerMove={(e) => {
+        const current = drag.current;
+        if (!current || !e.currentTarget.hasPointerCapture(e.pointerId)) return;
+        const delta = (e.clientX - current.startX) * direction();
+        const px = limit(current.startValue + delta);
+        current.latest = px;
+        if (current.frame !== null) return;
+        current.frame = requestAnimationFrame(() => {
+          const active = drag.current;
+          if (!active) return;
+          active.frame = null;
+          apply(active.latest);
+        });
+      }}
+      onPointerUp={(e) => finish(e.currentTarget)}
+      onLostPointerCapture={(e) => finish(e.currentTarget)}
+      onKeyDown={(e) => {
+        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+        e.preventDefault();
+        const step = (e.key === "ArrowRight" ? 1 : -1) * (document.documentElement.dir === "rtl" ? -1 : 1) * (invert ? -1 : 1) * 16;
+        const px = limit(getValue() + step);
+        apply(px);
+        commit(px);
       }}
     />
   );
@@ -56,18 +104,22 @@ function ResizeHandle({ onDrag, label }: { onDrag: (delta: number) => void; labe
 
 function Dialogs() {
   const dialog = useApp((s) => s.dialog);
+  const [loaded, setLoaded] = useState<Set<DialogName>>(() => new Set());
+  useEffect(() => {
+    if (dialog && !loaded.has(dialog)) setLoaded((previous) => new Set(previous).add(dialog));
+  }, [dialog, loaded]);
   return (
     <>
       <Suspense fallback={null}>
-        {dialog === "import" ? <ImportWizard /> : null}
-        {dialog === "export" ? <ExportDialog /> : null}
-        {dialog === "batch" ? <BatchDialog /> : null}
-        {dialog === "duplicates" ? <DuplicatesDialog /> : null}
-        {dialog === "queue" ? <QueueDialog /> : null}
-        {dialog === "history" ? <HistoryDialog /> : null}
-        {dialog === "settings" ? <SettingsDialog /> : null}
-        {dialog === "shortcuts" ? <ShortcutsDialog /> : null}
-        {dialog === "selftest" ? <SelfTestDialog /> : null}
+        {loaded.has("import") ? <ImportWizard /> : null}
+        {loaded.has("export") ? <ExportDialog /> : null}
+        {loaded.has("batch") ? <BatchDialog /> : null}
+        {loaded.has("duplicates") ? <DuplicatesDialog /> : null}
+        {loaded.has("queue") ? <QueueDialog /> : null}
+        {loaded.has("history") ? <HistoryDialog /> : null}
+        {loaded.has("settings") ? <SettingsDialog /> : null}
+        {loaded.has("shortcuts") ? <ShortcutsDialog /> : null}
+        {loaded.has("selftest") ? <SelfTestDialog /> : null}
       </Suspense>
       <CreateDialog />
       <ConfirmDelete />
@@ -81,19 +133,37 @@ function DesktopLayout() {
   const widths = useApp((s) => s.widths);
   const collapsed = useApp((s) => s.sidebarCollapsed);
   const setWidths = useApp((s) => s.setWidths);
-  const sidebarWidth = collapsed ? 64 : widths.sidebar;
-  const clamp = (v: number, min: number, max: number): number => Math.min(max, Math.max(min, v));
+  const rootRef = useRef<HTMLDivElement>(null);
+  const sidebarNow = (): number => (useApp.getState().sidebarCollapsed ? 64 : useApp.getState().widths.sidebar);
+  const rootStyle = { "--sidebar-w": `${widths.sidebar}px`, "--detail-w": `${widths.detail}px` } as CSSProperties;
   return (
-    <div className="flex min-h-0 flex-1">
-      <div className="shrink-0 border-e border-line" style={{ width: sidebarWidth }}>
+    <div ref={rootRef} data-layout-root className="flex min-h-0 flex-1" style={rootStyle}>
+      <div className="shrink-0 border-e border-line transition-[width] duration-200 ease-[var(--ease)]" style={{ width: collapsed ? 64 : "var(--sidebar-w)" }}>
         <Sidebar collapsed={collapsed} />
       </div>
-      {collapsed ? null : <ResizeHandle label={t("libraryHeading")} onDrag={(d) => setWidths({ sidebar: clamp(useApp.getState().widths.sidebar + d, 200, 360) })} />}
+      {collapsed ? null : (
+        <ResizeHandle
+          label={t("libraryHeading")}
+          getValue={() => useApp.getState().widths.sidebar}
+          apply={(px) => rootRef.current?.style.setProperty("--sidebar-w", `${px}px`)}
+          commit={(px) => setWidths({ sidebar: px })}
+          min={200}
+          max={() => Math.min(360, window.innerWidth - useApp.getState().widths.detail - 360 - 12)}
+        />
+      )}
       <div className="flex min-w-[360px] flex-1 flex-col" style={{ minWidth: 360 }}>
         <MiddlePane />
       </div>
-      <ResizeHandle label={t("emptyDetailTitle")} onDrag={(d) => setWidths({ detail: clamp(useApp.getState().widths.detail - d, 380, 720) })} />
-      <div className="shrink-0 border-s border-line bg-card" style={{ width: widths.detail, minWidth: 380 }}>
+      <ResizeHandle
+        label={t("emptyDetailTitle")}
+        getValue={() => useApp.getState().widths.detail}
+        apply={(px) => rootRef.current?.style.setProperty("--detail-w", `${px}px`)}
+        commit={(px) => setWidths({ detail: px })}
+        min={380}
+        max={() => Math.min(720, window.innerWidth - sidebarNow() - 360 - 12)}
+        invert
+      />
+      <div className="shrink-0 border-s border-line bg-card" style={{ width: "var(--detail-w)", minWidth: 380 }}>
         <DetailPane />
       </div>
     </div>
@@ -106,6 +176,8 @@ function CompactLayout() {
   const drawer = useApp((s) => s.mobileSidebarOpen);
   const setDrawer = useApp((s) => s.setMobileSidebar);
   const setMobileDetail = useApp((s) => s.setMobileDetail);
+  const detailRef = useRef<HTMLDivElement>(null);
+  useSwipeBack(detailRef, () => setMobileDetail(false));
   const t = useT();
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
@@ -121,7 +193,7 @@ function CompactLayout() {
       </Dialog.Root>
       <Dialog.Root open={open && focusedId !== null} onOpenChange={(o) => !o && setMobileDetail(false)}>
         <Dialog.Portal>
-          <Dialog.Content aria-describedby={undefined} className="anim-sheet fixed inset-0 z-40 bg-card">
+          <Dialog.Content ref={detailRef} aria-describedby={undefined} className="anim-push fixed inset-0 z-40 touch-pan-y bg-card">
             <Dialog.Title className="sr-only">{t("emptyDetailTitle")}</Dialog.Title>
             <DetailPane onBack={() => setMobileDetail(false)} />
           </Dialog.Content>
@@ -174,7 +246,7 @@ export function App() {
     return (
       <div className="grid h-full place-items-center">
         <div className="flex items-center gap-3 text-muted">
-          <Spinner size={20} /> {t("loadingLibrary")}
+          <DelayedSpinner size={20} /> {t("loadingLibrary")}
         </div>
       </div>
     );

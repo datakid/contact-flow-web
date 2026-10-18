@@ -1,7 +1,8 @@
-import { ArrowDownAZ, LayoutList, Table2 } from "lucide-react";
+import { LayoutList, Table2 } from "lucide-react";
+import { useDebounced } from "../../app/hooks";
 import { useT } from "../../app/i18n";
 import { formatNumber } from "../../app/i18n";
-import { useApp } from "../../app/store";
+import { EMPTY_GROUPS, useApp } from "../../app/store";
 import type { SortKey } from "../../core/types";
 import { Checkbox, Select, Segmented } from "../../ui/primitives";
 import { BulkBar } from "./BulkBar";
@@ -17,8 +18,9 @@ export function MiddlePane() {
   const view = useApp((s) => s.view);
   const setSort = useApp((s) => s.setSort);
   const setView = useApp((s) => s.setView);
-  const groups = useApp((s) => s.counts?.groups ?? []);
+  const groups = useApp((s) => s.counts?.groups ?? EMPTY_GROUPS);
   const list = useLibraryList();
+  const announced = useDebounced(list.total, 400);
   const allMatching = useApp((s) => s.allMatching);
   const selectedCount = useApp((s) => s.selected.size);
   const excludedCount = useApp((s) => s.excluded.size);
@@ -37,12 +39,13 @@ export function MiddlePane() {
       <header className="flex items-center gap-3 border-b border-line px-4 py-2.5">
         {list.total > 0 ? <Checkbox checked={headerChecked} onClick={() => (headerChecked === true ? clearSelection() : selectAllMatching())} label={t("selectAll")} /> : null}
         <div className="min-w-0 flex-1">
-          <h1 className="serif truncate text-2xl leading-tight">{filterTitle(filter, groups, t)}</h1>
+          <h1 key={filterTitle(filter, groups, t)} className="serif anim-fade truncate text-2xl leading-tight">{filterTitle(filter, groups, t)}</h1>
           <div className="text-xs text-muted">{t("nContacts", list.total).replace(/^\d[\d,.\s]*/, `${formatNumber(lang, list.total)} `)}</div>
           {list.searching && list.matchTotal > list.total ? <div className="text-xs text-muted">{t("showingFirstOf", list.total, list.matchTotal)}</div> : null}
         </div>
         <Select value={sort} onValueChange={setSort} options={sortOptions} label={t("sort")} className="w-40" />
         <Segmented
+          label={`${t("listView")} / ${t("tableView")}`}
           value={view}
           onChange={setView}
           options={[
@@ -53,9 +56,8 @@ export function MiddlePane() {
       </header>
       {view === "list" ? <ListView list={list} /> : <TableView list={list} />}
       <BulkBar list={list} />
-      <span className="sr-only" aria-live="polite">
-        <ArrowDownAZ size={0} />
-        {list.total}
+      <span className="sr-only" role="status" aria-live="polite">
+        {t("nContacts", announced).replace(/^\d[\d,.\s]*/, `${formatNumber(lang, announced)} `)}
       </span>
     </section>
   );

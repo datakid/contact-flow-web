@@ -1,4 +1,8 @@
-{
+fix+feat: correctness fixes, perf, motion system and UI polish across Contact Flow
+
+Shortcuts/import/toast/sidebar bugs, stable memoized list and CSS-var resizing,
+exit animations with bottom sheets and swipe-back, quiet inline saves, empty
+states, plus unit and e2e coverage.{
   "name": "contact-flow-web",
   "private": true,
   "version": "3.0.0",

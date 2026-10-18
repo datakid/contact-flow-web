@@ -15,6 +15,9 @@ if (container) {
 
 window.addEventListener("unhandledrejection", (event) => {
   event.preventDefault();
-  const message = event.reason instanceof Error ? event.reason.message : String(event.reason);
+  const reason: unknown = event.reason;
+  const name = reason instanceof Error || reason instanceof DOMException ? reason.name : "";
+  const message = reason instanceof Error ? reason.message : String(reason);
+  if (name === "AbortError" || /cancel/i.test(message)) return;
   useApp.getState().toast(message, null, "error");
 });

@@ -9,9 +9,16 @@
 @import "@fontsource/ibm-plex-sans-arabic/700.css";
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+@custom-variant can-hover (@media (hover: hover) and (pointer: fine));
+@custom-variant no-hover (@media (hover: none));
 
 :root {
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --dur-1: 120ms;
+  --dur-2: 180ms;
+  --dur-3: 260ms;
 }
 
 @theme {
@@ -137,6 +144,16 @@ select:focus-visible {
   scrollbar-color: var(--line) transparent;
 }
 
+.avatar {
+  background: hsl(var(--h) 55% 88%);
+  color: hsl(var(--h) 45% 28%);
+}
+
+[data-theme="dark"] .avatar {
+  background: hsl(var(--h) 28% 24%);
+  color: hsl(var(--h) 55% 82%);
+}
+
 .serif {
   font-family: var(--font-serif);
 }
@@ -236,9 +253,6 @@ mark.hl {
   animation: pop-in 220ms var(--ease);
 }
 
-.anim-sheet {
-  animation: slide-up 260ms var(--ease);
-}
 
 .anim-drawer {
   animation: drawer-in 260ms var(--ease);
@@ -256,9 +270,13 @@ mark.hl {
   animation: toast-in 240ms var(--ease);
 }
 
-.toast[data-state="closed"],
+.toast[data-state="closed"] {
+  animation: toast-out 160ms ease-in forwards;
+}
+
 .toast[data-swipe="end"] {
   animation: toast-out 160ms ease-in forwards;
+  transform: translateY(var(--radix-toast-swipe-end-y));
 }
 
 .toast[data-swipe="move"] {
@@ -270,6 +288,202 @@ mark.hl {
   transition: transform 200ms var(--ease);
 }
 
+@keyframes pop-out {
+  to {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+}
+
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+@keyframes menu-out {
+  to {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes sheet-down {
+  to {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes push-in {
+  from {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes push-out {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes push-in-rtl {
+  from {
+    transform: translateX(-100%);
+  }
+}
+
+@keyframes push-out-rtl {
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+@keyframes drawer-out {
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+@keyframes drawer-out-rtl {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes bar-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+}
+
+@keyframes bar-out {
+  to {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+}
+
+@keyframes check-in {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
+
+@keyframes step-fwd {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+
+@keyframes step-back {
+  from {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+}
+
+.anim-fade[data-state="closed"] {
+  animation: fade-out var(--dur-1) var(--ease-in) forwards;
+}
+
+.anim-pop[data-state="closed"] {
+  animation: pop-out var(--dur-1) var(--ease-in) forwards;
+}
+
+.anim-sheet {
+  animation: sheet-up var(--dur-3) var(--ease-out);
+}
+
+.anim-sheet[data-state="closed"] {
+  animation: sheet-down 200ms var(--ease-in) forwards;
+}
+
+.anim-push {
+  animation: push-in var(--dur-3) var(--ease-out);
+}
+
+.anim-push[data-state="closed"] {
+  animation: push-out 200ms var(--ease-in) forwards;
+}
+
+[dir="rtl"] .anim-push {
+  animation-name: push-in-rtl;
+}
+
+[dir="rtl"] .anim-push[data-state="closed"] {
+  animation-name: push-out-rtl;
+}
+
+.anim-drawer[data-state="closed"] {
+  animation: drawer-out 200ms var(--ease-in) forwards;
+}
+
+[dir="rtl"] .anim-drawer[data-state="closed"] {
+  animation-name: drawer-out-rtl;
+}
+
+.anim-menu {
+  animation: menu-in var(--dur-1) var(--ease-out);
+}
+
+.anim-menu[data-state="closed"] {
+  animation: menu-out 90ms var(--ease-in) forwards;
+}
+
+.anim-bar[data-state="open"] {
+  animation: bar-in 220ms var(--ease-out);
+}
+
+.anim-bar[data-state="closed"] {
+  animation: bar-out 140ms var(--ease-in) forwards;
+  pointer-events: none;
+}
+
+.anim-step-fwd {
+  animation: step-fwd var(--dur-2) var(--ease-out);
+}
+
+.anim-step-back {
+  animation: step-back var(--dur-2) var(--ease-out);
+}
+
+[dir="rtl"] .anim-step-fwd {
+  animation-name: step-back;
+}
+
+[dir="rtl"] .anim-step-back {
+  animation-name: step-fwd;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 220ms;
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  overscroll-behavior: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -277,6 +491,10 @@ mark.hl {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+[data-resizing="true"] * {
+  transition: none !important;
 }
 
 .resize-handle {
@@ -298,6 +516,7 @@ mark.hl {
 }
 
 .resize-handle:hover::after,
+.resize-handle:focus-visible::after,
 .resize-handle[data-active="true"]::after {
   background: var(--accent);
 }
